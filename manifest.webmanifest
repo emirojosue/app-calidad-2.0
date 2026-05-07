@@ -1,0 +1,19 @@
+{
+  "name": "Control de Calidad",
+  "short_name": "Calidad",
+  "description": "Registro de control de calidad para planta de produccion.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
