@@ -341,24 +341,42 @@ body {
 
 .measurement-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 15px;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  align-items: stretch;
+  gap: 16px;
   margin-bottom: 24px;
 }
 
+.measure-item {
+  display: grid;
+  grid-template-rows: minmax(44px, auto) minmax(48px, auto);
+  align-items: end;
+  min-width: 0;
+}
+
 .measure-item label {
-  display: block;
-  margin-bottom: 6px;
+  display: flex;
+  min-height: 44px;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: 8px;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
+  line-height: 1.35;
   text-align: center;
+  text-wrap: balance;
 }
 
 .measure-item input,
 .measure-item select {
   width: 100%;
+  min-height: 48px;
   text-align: center;
+}
+
+.measure-item .other-input {
+  margin-top: 8px;
 }
 
 .measure-item .measure-input.in-range {
@@ -664,7 +682,11 @@ body {
   }
 
   .measurement-grid {
-    grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  }
+
+  .measure-item {
+    grid-template-rows: minmax(50px, auto) 48px;
   }
 
   .form-actions,
