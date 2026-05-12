@@ -50,6 +50,9 @@ const brixRange = {
   step: 0.1,
 };
 
+const binaryOptions = ["1", "0"];
+const rememberedGeneralFormats = ["maduracion", "recibo"];
+const generalFieldIds = ["horaInicio", "cuartoMaduracion", "realizadoPor", "verificadoPor", "observaciones"];
 const brixSuggestions = buildRangeOptions(brixRange.min, brixRange.max, brixRange.step);
 const tableColumns = [
   "#",
@@ -255,10 +258,13 @@ const iqfGroups = [
     title: "Verificacion de loteado",
     icon: "bi-upc-scan",
     label: "Loteado",
-    options: ["Conforme", "No conforme"],
+    inputType: "text",
+    valueFrom: "loteProduccion",
+    prefix: "W",
+    readonly: true,
     count: 1,
     columnPrefix: "VL",
-    exportLabel: "Verificacion loteado",
+    exportLabel: "Loteado",
   },
   {
     id: "selladoVertical",
@@ -314,7 +320,8 @@ const reciboGroups = [
     title: "Condiciones del vehiculo y conductor",
     icon: "bi-shield-check",
     label: "Estado de limpieza vehiculo",
-    options: ["Conforme", "No conforme"],
+    options: binaryOptions,
+    allowOther: false,
     columnLabel: "Estado limpieza vehiculo",
   },
   {
@@ -322,7 +329,8 @@ const reciboGroups = [
     title: "Condiciones del vehiculo y conductor",
     icon: "bi-shield-check",
     label: "Libre contaminacion cruzada",
-    options: ["Conforme", "No conforme"],
+    options: binaryOptions,
+    allowOther: false,
     columnLabel: "Libre contaminacion cruzada",
   },
   {
@@ -330,7 +338,8 @@ const reciboGroups = [
     title: "Condiciones del vehiculo y conductor",
     icon: "bi-shield-check",
     label: "Higiene del conductor",
-    options: ["Conforme", "No conforme"],
+    options: binaryOptions,
+    allowOther: false,
     columnLabel: "Higiene del conductor",
   },
   {
@@ -338,7 +347,8 @@ const reciboGroups = [
     title: "Condiciones del vehiculo y conductor",
     icon: "bi-shield-check",
     label: "Documentos vehiculo / conductor",
-    options: ["Conforme", "No conforme"],
+    options: binaryOptions,
+    allowOther: false,
     columnLabel: "Documentos vehiculo / conductor",
   },
   {
@@ -355,6 +365,8 @@ const reciboGroups = [
     icon: "bi-person-lines-fill",
     label: "Semana cosecha",
     inputType: "text",
+    defaultValue: "10",
+    readonly: true,
     columnLabel: "Semana cosecha",
   },
   {
@@ -398,7 +410,8 @@ const reciboGroups = [
     title: "Condiciones organolepticas",
     icon: "bi-search",
     label: "Plaga (A/P)",
-    options: ["Ausente", "Presente"],
+    options: ["Ausencia", "Presencia"],
+    allowOther: false,
     columnLabel: "Plaga (A/P)",
   },
   {
@@ -415,7 +428,8 @@ const reciboGroups = [
     title: "Condiciones organolepticas",
     icon: "bi-search",
     label: "Olor",
-    inputType: "text",
+    options: ["Caracteristico", "No caracteristico"],
+    allowOther: false,
     columnLabel: "Olor",
   },
   {
@@ -423,7 +437,8 @@ const reciboGroups = [
     title: "Condiciones organolepticas",
     icon: "bi-search",
     label: "Sabor",
-    inputType: "text",
+    options: ["Dulce", "Amargo"],
+    allowOther: false,
     columnLabel: "Sabor",
   },
   {
@@ -431,18 +446,28 @@ const reciboGroups = [
     title: "Condiciones organolepticas",
     icon: "bi-search",
     label: "Color",
-    inputType: "text",
+    options: ["Verde", "Amarillo", "Negro"],
+    allowOther: false,
     columnLabel: "Color",
   },
 ];
 
 const maduracionGroups = [
   {
+    id: "seccionMaduracion",
+    title: "Seguimiento de maduracion",
+    icon: "bi-graph-up-arrow",
+    label: "Seccion",
+    options: ["A", "B", "C", "D"],
+    allowOther: false,
+  },
+  {
     id: "posicionMaduracion",
     title: "Seguimiento de maduracion",
     icon: "bi-graph-up-arrow",
     label: "Posicion",
-    inputType: "text",
+    options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+    allowOther: false,
   },
   {
     id: "tempCuartoMaduracion",
@@ -481,21 +506,24 @@ const maduracionGroups = [
     title: "Seguimiento de maduracion",
     icon: "bi-graph-up-arrow",
     label: "Sabor",
-    inputType: "text",
+    options: ["Dulce", "Amargo"],
+    allowOther: false,
   },
   {
     id: "olorMaduracion",
     title: "Seguimiento de maduracion",
     icon: "bi-graph-up-arrow",
     label: "Olor",
-    inputType: "text",
+    options: ["Caracteristico", "No caracteristico"],
+    allowOther: false,
   },
   {
     id: "colorMaduracion",
     title: "Seguimiento de maduracion",
     icon: "bi-graph-up-arrow",
     label: "Color",
-    inputType: "text",
+    options: ["Verde", "Amarillo", "Negro"],
+    allowOther: false,
   },
 ];
 
@@ -546,6 +574,8 @@ function cacheElements() {
   elements.fechaRegistro = document.getElementById("fechaRegistro");
   elements.loteProduccion = document.getElementById("loteProduccion");
   elements.horaInicio = document.getElementById("horaInicio");
+  elements.cuartoMaduracion = document.getElementById("cuartoMaduracion");
+  elements.observaciones = document.getElementById("observaciones");
   elements.measurementsContainer = document.getElementById("measurementsContainer");
   elements.recordsHead = document.getElementById("recordsHead");
   elements.recordsBody = document.getElementById("recordsBody");
@@ -567,7 +597,10 @@ function bindEvents() {
   elements.btnOpenRecibo.addEventListener("click", () => showFormatView("recibo"));
   elements.btnBackToMenu.addEventListener("click", showMainMenu);
   elements.form.addEventListener("submit", addRecord);
-  elements.datePicker.addEventListener("change", handleDateChange);
+  elements.datePicker.addEventListener("change", () => {
+    handleDateChange();
+    applyRememberedGeneralInfo();
+  });
   elements.btnDownload.addEventListener("click", downloadExcel);
   elements.btnShareFile.addEventListener("click", shareRecordsFile);
   elements.btnClearForm.addEventListener("click", clearFormInputs);
@@ -594,6 +627,7 @@ function showFormatView(formatId) {
   loadRecords();
   handleDateChange();
   clearFormInputs();
+  applyRememberedGeneralInfo();
   elements.mainMenu.hidden = true;
   elements.porcionadoView.hidden = false;
   elements.porcionadoView.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -682,16 +716,19 @@ function renderIqfMeasurementGroup(group) {
     const fieldLabel = `${group.label}${suffix}${unitLabel}`;
     const rangeAttributes = getRangeAttributes(group);
 
-    if (group.inputType === "number") {
+    if (group.inputType) {
+      const inputValue = group.valueFrom ? getLinkedFieldValue(group) : "";
       return `
         <div class="measure-item">
           <label for="${id}">${fieldLabel}</label>
           <input
             class="form-control measure-input"
-            type="number"
+            type="${group.inputType}"
             id="${id}"
             step="${group.step || 1}"
+            value="${inputValue}"
             ${rangeAttributes}
+            ${group.readonly ? "readonly" : ""}
             required
           >
         </div>
@@ -757,7 +794,9 @@ function renderReciboField(field) {
         class="form-control measure-input"
         type="${field.inputType || "text"}"
         id="${field.id}"
+        value="${field.defaultValue || ""}"
         ${field.step ? `step="${field.step}"` : ""}
+        ${field.readonly ? "readonly" : ""}
         required
       >
     </div>
@@ -779,6 +818,15 @@ function renderMaduracionFields() {
 }
 
 function renderMaduracionField(field) {
+  if (field.options) {
+    return `
+      <div class="measure-item">
+        <label for="${field.id}">${field.label}</label>
+        ${renderSelectWithOther(field.id, field.options, "", field)}
+      </div>
+    `;
+  }
+
   return `
     <div class="measure-item">
       <label for="${field.id}">${field.label}</label>
@@ -797,6 +845,7 @@ function renderSelectWithOther(id, options, attributes = "", config = {}) {
   const otherId = `${id}Otro`;
   const otherType = config.min !== undefined || config.max !== undefined || config.step ? "number" : "text";
   const otherStep = config.step ? `step="${config.step}"` : "";
+  const allowOther = config.allowOther !== false;
   const optionItems = options
     .map((option) => `<option value="${option}">${option}</option>`)
     .join("");
@@ -805,17 +854,19 @@ function renderSelectWithOther(id, options, attributes = "", config = {}) {
     <select class="form-select measure-input" id="${id}" ${attributes} data-other-target="${otherId}" required>
       <option value="">Seleccionar</option>
       ${optionItems}
-      <option value="${OTHER_VALUE}">Otro</option>
+      ${allowOther ? `<option value="${OTHER_VALUE}">Otro</option>` : ""}
     </select>
-    <input
-      class="form-control measure-input other-input"
-      type="${otherType}"
-      id="${otherId}"
-      ${attributes}
-      ${otherStep}
-      placeholder="Escribir otro..."
-      hidden
-    >
+    ${allowOther ? `
+      <input
+        class="form-control measure-input other-input"
+        type="${otherType}"
+        id="${otherId}"
+        ${attributes}
+        ${otherStep}
+        placeholder="Escribir otro..."
+        hidden
+      >
+    ` : ""}
   `;
 }
 
@@ -874,6 +925,10 @@ function renderTableHeader() {
 function getTableColumns() {
   if (state.activeFormatId === "maduracion") {
     return [
+      "Fecha",
+      "Lote",
+      "Cuarto de maduracion",
+      "Seccion",
       "Posicion",
       "Temperatura cuarto de maduracion (&deg;C)",
       "Humedad relativa cuarto de maduracion (%Hr)",
@@ -1074,6 +1129,27 @@ function handleDateChange() {
   elements.dateDisplay.textContent = formattedDate;
   elements.fechaRegistro.value = formattedDate;
   elements.loteProduccion.value = getLotCode(gregorianDate);
+  syncValueFromFields();
+}
+
+function syncValueFromFields() {
+  if (state.activeFormatId !== "iqf") return;
+
+  iqfGroups.forEach((group) => {
+    if (!group.valueFrom) return;
+
+    Array.from({ length: getGroupCount(group) }, (_, index) => {
+      const input = document.getElementById(`${group.id}${index + 1}`);
+      if (input) input.value = getLinkedFieldValue(group);
+    });
+  });
+}
+
+function getLinkedFieldValue(group) {
+  const value = getValue(group.valueFrom);
+  if (group.prefix && value && !value.startsWith(group.prefix)) return `${group.prefix}${value}`;
+
+  return value;
 }
 
 function gregorianToJulian(dateString) {
@@ -1121,11 +1197,26 @@ function getLotCode(dateString) {
   const weekYear = getWeekYear(dateString);
   if (!weekYear) return "";
 
+  if (state.activeFormatId === "recibo") {
+    return getDayOfYearCode(dateString);
+  }
+
   if (state.activeFormatId === "iqf") {
     return `W${weekYear.replace("-", "")}`;
   }
 
   return weekYear;
+}
+
+function getDayOfYearCode(dateString) {
+  const date = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const year = date.getFullYear();
+  const start = new Date(year, 0, 1);
+  const dayOfYear = Math.floor((date - start) / 86400000) + 1;
+
+  return `${String(dayOfYear).padStart(3, "0")}-${year}`;
 }
 
 function isLeapYear(year) {
@@ -1255,8 +1346,8 @@ function getRecordStatus(record) {
       record.medidas.libreContaminacionCruzada,
       record.medidas.higieneConductor,
       record.medidas.documentosVehiculoConductor,
-    ].includes("No conforme");
-    const hasPlague = record.medidas.plaga === "Presente";
+    ].includes("0");
+    const hasPlague = record.medidas.plaga === "Presencia";
 
     return noConforming || hasPlague ? "Revisar" : "OK";
   }
@@ -1273,7 +1364,7 @@ function getRecordStatus(record) {
         return Number.isNaN(number) || underMin || overMax;
       });
     });
-    const hasNonConforming = ["verificacionLoteado", "selladoVertical", "selladoHorizontal", "materialExtranoIqf"].some((groupId) => {
+    const hasNonConforming = ["selladoVertical", "selladoHorizontal", "materialExtranoIqf"].some((groupId) => {
       return record.medidas[groupId].some((value) => ["No conforme", "Presente"].includes(value));
     });
 
@@ -1324,16 +1415,57 @@ function clearFormInputs() {
     lote: elements.loteProduccion.value,
     hora: elements.horaInicio.value,
   };
+  const generalValues = shouldRememberGeneralInfo() ? getGeneralFormValues() : {};
 
   elements.form.reset();
   elements.fechaRegistro.value = selectedValues.fecha;
   elements.loteProduccion.value = selectedValues.lote;
   elements.horaInicio.value = selectedValues.hora;
+  if (shouldRememberGeneralInfo()) setGeneralFormValues(generalValues);
   document.querySelectorAll(".measure-input").forEach((input) => input.classList.remove("in-range", "out-range"));
   document.querySelectorAll(".other-input").forEach((input) => {
     input.hidden = true;
     input.required = false;
     input.value = "";
+  });
+}
+
+function shouldRememberGeneralInfo() {
+  return rememberedGeneralFormats.includes(state.activeFormatId);
+}
+
+function getGeneralFormValues() {
+  return generalFieldIds.reduce((values, id) => {
+    values[id] = getValue(id);
+    return values;
+  }, {});
+}
+
+function setGeneralFormValues(values = {}) {
+  generalFieldIds.forEach((id) => {
+    const element = document.getElementById(id);
+    if (!element || values[id] === undefined) return;
+    element.value = values[id];
+  });
+}
+
+function applyRememberedGeneralInfo() {
+  if (!shouldRememberGeneralInfo() || !elements.fechaRegistro.value) return;
+
+  const record = [...state.records].reverse().find((item) => item.fecha === elements.fechaRegistro.value);
+  if (!record) {
+    elements.horaInicio.value = new Date().toTimeString().slice(0, 5);
+    elements.cuartoMaduracion.value = "";
+    elements.observaciones.value = "";
+    return;
+  }
+
+  setGeneralFormValues({
+    horaInicio: record.hora,
+    cuartoMaduracion: record.cuarto,
+    realizadoPor: record.realizadoPor,
+    verificadoPor: record.verificadoPor,
+    observaciones: record.observaciones,
   });
 }
 
@@ -1459,6 +1591,9 @@ function renderRecordRow(record, index) {
   if (state.activeFormatId === "maduracion") {
     return `
       <tr>
+        <td>${escapeHtml(record.fecha)}</td>
+        <td>${escapeHtml(record.lote)}</td>
+        <td>${escapeHtml(record.cuarto)}</td>
         ${measureValues.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}
         <td>${escapeHtml(record.realizadoPor)}</td>
         <td>${escapeHtml(record.verificadoPor)}</td>
@@ -1524,6 +1659,7 @@ function renderRecordRow(record, index) {
 function getRecordMeasureValues(record) {
   if (state.activeFormatId === "maduracion") {
     return [
+      record.medidas.seccionMaduracion,
       record.medidas.posicionMaduracion,
       record.medidas.tempCuartoMaduracion,
       record.medidas.humedadCuartoMaduracion,
@@ -1611,6 +1747,10 @@ function createRecordsFile() {
 function getExportRows() {
   if (state.activeFormatId === "maduracion") {
     return state.records.map((record) => ({
+      Fecha: record.fecha,
+      Lote: record.lote,
+      "Cuarto de maduracion": record.cuarto,
+      Seccion: record.medidas.seccionMaduracion,
       Posicion: record.medidas.posicionMaduracion,
       "Temperatura cuarto de maduracion (C)": record.medidas.tempCuartoMaduracion,
       "Humedad relativa cuarto de maduracion (%Hr)": record.medidas.humedadCuartoMaduracion,
