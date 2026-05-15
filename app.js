@@ -1,5 +1,6 @@
 const STORAGE_KEY = "qualityControlRecords";
 const OTHER_VALUE = "__other__";
+const CLOUD_CONFIG = window.CONTROL_CALIDAD_CONFIG || {};
 
 const measurementGroups = [
   {
@@ -53,6 +54,15 @@ const brixRange = {
 const binaryOptions = ["1", "0"];
 const rememberedGeneralFormats = ["maduracion", "recibo"];
 const generalFieldIds = ["horaInicio", "cuartoMaduracion", "realizadoPor", "verificadoPor", "observaciones"];
+const reciboFirstRecordAutofillTitles = [
+  "Datos de ingreso",
+  "Condiciones del vehiculo y conductor",
+  "Proveedor y cosecha",
+];
+const maduracionFirstRecordAutofillIds = [
+  "tempCuartoMaduracion",
+  "humedadCuartoMaduracion",
+];
 const brixSuggestions = buildRangeOptions(brixRange.min, brixRange.max, brixRange.step);
 const tableColumns = [
   "#",
@@ -540,25 +550,46 @@ const state = {
   calendarType: "gregorian",
   selectedDate: "",
   activeFormatId: "porcionado",
+  cloudEnabled: false,
+  authUser: null,
+  authProfile: null,
 };
 
 const elements = {};
+let supabaseClient = null;
 
 document.addEventListener("DOMContentLoaded", initApp);
 
-function initApp() {
+async function initApp() {
   cacheElements();
-  renderMeasurementFields();
-  renderTableHeader();
   bindEvents();
   registerServiceWorker();
-  setInitialDateTime();
-  loadRecords();
   updateClock();
   setInterval(updateClock, 1000);
+
+  if (isCloudConfigured()) {
+    await initCloudAuth();
+    return;
+  }
+
+  showApp();
+  await initializeAppView();
 }
 
 function cacheElements() {
+  elements.authShell = document.getElementById("authShell");
+  elements.appShell = document.getElementById("appShell");
+  elements.authForm = document.getElementById("authForm");
+  elements.authEmail = document.getElementById("authEmail");
+  elements.authPassword = document.getElementById("authPassword");
+  elements.btnAuthRegister = document.getElementById("btnAuthRegister");
+  elements.authMessage = document.getElementById("authMessage");
+  elements.userControls = document.getElementById("userControls");
+  elements.currentUserLabel = document.getElementById("currentUserLabel");
+  elements.btnLogout = document.getElementById("btnLogout");
+  elements.adminPanel = document.getElementById("adminPanel");
+  elements.adminUsersBody = document.getElementById("adminUsersBody");
+  elements.btnRefreshUsers = document.getElementById("btnRefreshUsers");
   elements.mainMenu = document.getElementById("mainMenu");
   elements.porcionadoView = document.getElementById("porcionadoView");
   elements.btnOpenPorcionado = document.getElementById("btnOpenPorcionado");
@@ -590,6 +621,14 @@ function cacheElements() {
 }
 
 function bindEvents() {
+  elements.authForm?.addEventListener("submit", signInUser);
+  elements.btnAuthRegister?.addEventListener("click", registerUser);
+  elements.btnLogout?.addEventListener("click", signOutUser);
+  elements.btnRefreshUsers?.addEventListener("click", loadAdminUsers);
+  elements.adminUsersBody?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-disable-user]");
+    if (button) disableUser(button.dataset.disableUser);
+  });
   elements.btnOpenPorcionado.addEventListener("click", () => showFormatView("porcionado"));
   elements.btnOpenPrefreido.addEventListener("click", () => showFormatView("prefreido"));
   elements.btnOpenIqf.addEventListener("click", () => showFormatView("iqf"));
@@ -600,6 +639,8 @@ function bindEvents() {
   elements.datePicker.addEventListener("change", () => {
     handleDateChange();
     applyRememberedGeneralInfo();
+    applyReciboFirstRecordInfo();
+    applyMaduracionFirstRecordInfo();
   });
   elements.btnDownload.addEventListener("click", downloadExcel);
   elements.btnShareFile.addEventListener("click", shareRecordsFile);
@@ -619,15 +660,190 @@ function bindEvents() {
   });
 }
 
-function showFormatView(formatId) {
+function isCloudConfigured() {
+  return Boolean(CLOUD_CONFIG.supabaseUrl && CLOUD_CONFIG.supabaseAnonKey && window.supabase);
+}
+
+async function initCloudAuth() {
+  state.cloudEnabled = true;
+  supabaseClient = window.supabase.createClient(CLOUD_CONFIG.supabaseUrl, CLOUD_CONFIG.supabaseAnonKey);
+  showAuthMessage("");
+
+  const { data } = await supabaseClient.auth.getSession();
+  if (data.session) {
+    await handleSignedIn(data.session.user);
+  } else {
+    showAuth();
+  }
+
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    if (session?.user) {
+      await handleSignedIn(session.user);
+    } else {
+      state.authUser = null;
+      state.authProfile = null;
+      state.records = [];
+      renderAuthHeader();
+      showAuth();
+    }
+  });
+}
+
+async function handleSignedIn(user) {
+  state.authUser = user;
+  state.authProfile = await ensureProfile(user);
+
+  if (state.authProfile?.disabled) {
+    await supabaseClient.auth.signOut();
+    showAuthMessage("Este usuario esta desactivado.");
+    return;
+  }
+
+  showApp();
+  renderAuthHeader();
+  await initializeAppView();
+  if (isSuperUser()) await loadAdminUsers();
+}
+
+async function ensureProfile(user) {
+  const { data: existing } = await supabaseClient
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  const profile = {
+    id: user.id,
+    email: user.email,
+    role: "user",
+  };
+  const { data, error } = await supabaseClient.from("profiles").insert(profile).select("*").single();
+  if (error) {
+    showAuthMessage("No se pudo crear el perfil del usuario.");
+    return profile;
+  }
+
+  return data;
+}
+
+function showAuth() {
+  elements.authShell.hidden = false;
+  elements.appShell.hidden = true;
+}
+
+function showApp() {
+  elements.authShell.hidden = true;
+  elements.appShell.hidden = false;
+}
+
+async function signInUser(event) {
+  event.preventDefault();
+  showAuthMessage("Validando acceso...");
+
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email: elements.authEmail.value.trim(),
+    password: elements.authPassword.value,
+  });
+
+  showAuthMessage(error ? "Correo o contrasena incorrectos." : "");
+}
+
+async function registerUser() {
+  showAuthMessage("Creando usuario...");
+
+  const { error } = await supabaseClient.auth.signUp({
+    email: elements.authEmail.value.trim(),
+    password: elements.authPassword.value,
+  });
+
+  showAuthMessage(error ? "No se pudo crear el usuario." : "Usuario creado. Revisa el correo si Supabase pide confirmacion.");
+}
+
+async function signOutUser() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+}
+
+function renderAuthHeader() {
+  const hasUser = Boolean(state.authUser);
+  elements.userControls.hidden = !hasUser;
+  elements.adminPanel.hidden = !isSuperUser();
+  if (hasUser) {
+    elements.currentUserLabel.textContent = `${state.authUser.email}${isSuperUser() ? " - Super usuario" : ""}`;
+  }
+}
+
+function showAuthMessage(message) {
+  if (elements.authMessage) elements.authMessage.textContent = message;
+}
+
+function isSuperUser() {
+  return Boolean(state.authUser && state.authProfile?.role === "super");
+}
+
+async function loadAdminUsers() {
+  if (!isSuperUser()) return;
+
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .select("id,email,role,disabled,created_at")
+    .order("email");
+
+  if (error) {
+    elements.adminUsersBody.innerHTML = `<tr><td colspan="4">No se pudieron cargar los usuarios.</td></tr>`;
+    return;
+  }
+
+  elements.adminUsersBody.innerHTML = data.map((profile) => {
+    const isCurrent = profile.id === state.authUser.id;
+    const action = isCurrent
+      ? "-"
+      : `<button class="btn-delete" type="button" data-disable-user="${profile.id}">Bloquear</button>`;
+
+    return `
+      <tr>
+        <td>${escapeHtml(profile.email)}</td>
+        <td>${escapeHtml(profile.role)}</td>
+        <td>${profile.disabled ? "Bloqueado" : "Activo"}</td>
+        <td>${action}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function disableUser(userId) {
+  if (!isSuperUser()) return;
+  if (!window.confirm("Deseas bloquear el acceso de este usuario?")) return;
+
+  const { error } = await supabaseClient.from("profiles").update({ disabled: true }).eq("id", userId);
+  if (error) {
+    window.alert("No se pudo bloquear el usuario.");
+    return;
+  }
+
+  await loadAdminUsers();
+}
+
+async function initializeAppView() {
+  renderMeasurementFields();
+  renderTableHeader();
+  setInitialDateTime();
+  await loadRecords();
+}
+
+async function showFormatView(formatId) {
   state.activeFormatId = formatId;
   elements.formatViewTitle.textContent = formatTitles[formatId];
   renderMeasurementFields();
   renderTableHeader();
-  loadRecords();
+  await loadRecords();
   handleDateChange();
   clearFormInputs();
   applyRememberedGeneralInfo();
+  applyReciboFirstRecordInfo();
+  applyMaduracionFirstRecordInfo();
   elements.mainMenu.hidden = true;
   elements.porcionadoView.hidden = false;
   elements.porcionadoView.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1079,7 +1295,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=16").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=19").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1258,7 +1474,7 @@ function checkRange(input) {
   input.classList.add(underMin || overMax ? "out-range" : "in-range");
 }
 
-function addRecord(event) {
+async function addRecord(event) {
   event.preventDefault();
   handleDateChange();
 
@@ -1278,9 +1494,10 @@ function addRecord(event) {
     briz: state.activeFormatId === "porcionado" ? collectBriz() : [],
   };
 
+  record.id = crypto.randomUUID?.() || String(Date.now());
   record.estado = getRecordStatus(record);
-  state.records.push(record);
-  saveRecords();
+  const saved = await saveRecord(record);
+  if (!saved) return;
   renderRecords();
   resetFormAfterSave();
 }
@@ -1407,6 +1624,8 @@ function getRecordStatus(record) {
 
 function resetFormAfterSave() {
   clearFormInputs();
+  applyReciboFirstRecordInfo();
+  applyMaduracionFirstRecordInfo();
 }
 
 function clearFormInputs() {
@@ -1422,6 +1641,8 @@ function clearFormInputs() {
   elements.loteProduccion.value = selectedValues.lote;
   elements.horaInicio.value = selectedValues.hora;
   if (shouldRememberGeneralInfo()) setGeneralFormValues(generalValues);
+  applyReciboFirstRecordInfo();
+  applyMaduracionFirstRecordInfo();
   document.querySelectorAll(".measure-input").forEach((input) => input.classList.remove("in-range", "out-range"));
   document.querySelectorAll(".other-input").forEach((input) => {
     input.hidden = true;
@@ -1469,7 +1690,44 @@ function applyRememberedGeneralInfo() {
   });
 }
 
-function loadRecords() {
+function applyReciboFirstRecordInfo() {
+  if (state.activeFormatId !== "recibo" || !elements.fechaRegistro.value) return;
+
+  const firstRecord = state.records.find((record) => record.fecha === elements.fechaRegistro.value);
+  const values = firstRecord?.medidas || {};
+
+  getReciboFirstRecordAutofillFields().forEach((field) => {
+    const element = document.getElementById(field.id);
+    if (!element) return;
+
+    element.value = values[field.id] ?? field.defaultValue ?? "";
+  });
+}
+
+function getReciboFirstRecordAutofillFields() {
+  return reciboGroups.filter((field) => reciboFirstRecordAutofillTitles.includes(field.title));
+}
+
+function applyMaduracionFirstRecordInfo() {
+  if (state.activeFormatId !== "maduracion" || !elements.fechaRegistro.value) return;
+
+  const firstRecord = state.records.find((record) => record.fecha === elements.fechaRegistro.value);
+  const values = firstRecord?.medidas || {};
+
+  maduracionFirstRecordAutofillIds.forEach((id) => {
+    const element = document.getElementById(id);
+    if (!element) return;
+
+    element.value = values[id] || "";
+  });
+}
+
+async function loadRecords() {
+  if (canUseCloud()) {
+    await loadCloudRecords();
+    return;
+  }
+
   try {
     state.records = (JSON.parse(localStorage.getItem(getStorageKey())) || []).map(normalizeRecord);
   } catch {
@@ -1479,8 +1737,31 @@ function loadRecords() {
   renderRecords();
 }
 
+async function loadCloudRecords() {
+  let query = supabaseClient
+    .from("quality_records")
+    .select("id,user_id,user_email,record_data,created_at")
+    .eq("format_id", state.activeFormatId)
+    .order("created_at", { ascending: true });
+
+  if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
+
+  const { data, error } = await query;
+  if (error) {
+    window.alert("No se pudieron cargar los registros en la nube.");
+    state.records = [];
+  } else {
+    state.records = data.map((row) => normalizeRecord({ ...row.record_data, _cloudId: row.id, userEmail: row.user_email }));
+  }
+
+  renderRecords();
+}
+
 function normalizeRecord(record) {
   return {
+    id: record.id || crypto.randomUUID?.() || String(Date.now()),
+    _cloudId: record._cloudId,
+    userEmail: record.userEmail || "",
     fecha: record.fecha || "",
     mes: record.mes || getMonthNameFromDisplay(record.fecha),
     fechaJuliana: record.fechaJuliana || "",
@@ -1535,6 +1816,34 @@ function normalizeFixedArray(values, length = 5) {
   return Array.from({ length }, (_, index) => values?.[index] || "");
 }
 
+async function saveRecord(record) {
+  if (canUseCloud()) {
+    const { data, error } = await supabaseClient
+      .from("quality_records")
+      .insert({
+        user_id: state.authUser.id,
+        user_email: state.authUser.email,
+        format_id: state.activeFormatId,
+        record_data: record,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      window.alert("No se pudo guardar el registro en la nube.");
+      return false;
+    }
+
+    record._cloudId = data.id;
+    state.records.push(record);
+    return true;
+  }
+
+  state.records.push(record);
+  saveRecords();
+  return true;
+}
+
 function saveRecords() {
   localStorage.setItem(getStorageKey(), JSON.stringify(state.records));
 }
@@ -1548,19 +1857,43 @@ function getStorageKey() {
   return STORAGE_KEY;
 }
 
-function deleteRecord(index) {
+async function deleteRecord(index) {
+  const record = state.records[index];
+  if (canUseCloud() && record?._cloudId) {
+    const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
+    if (error) {
+      window.alert("No se pudo eliminar el registro en la nube.");
+      return;
+    }
+  }
+
   state.records.splice(index, 1);
-  saveRecords();
+  if (!canUseCloud()) saveRecords();
   renderRecords();
 }
 
-function clearRecords() {
+async function clearRecords() {
   if (!state.records.length) return;
   if (!window.confirm("¿Deseas borrar todos los registros agregados?")) return;
 
+  if (canUseCloud()) {
+    let query = supabaseClient.from("quality_records").delete().eq("format_id", state.activeFormatId);
+    if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
+
+    const { error } = await query;
+    if (error) {
+      window.alert("No se pudieron borrar los registros en la nube.");
+      return;
+    }
+  }
+
   state.records = [];
-  saveRecords();
+  if (!canUseCloud()) saveRecords();
   renderRecords();
+}
+
+function canUseCloud() {
+  return Boolean(state.cloudEnabled && supabaseClient && state.authUser);
 }
 
 function renderRecords() {

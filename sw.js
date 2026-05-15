@@ -1,10 +1,11 @@
-const CACHE_NAME = "control-calidad-v16";
+const CACHE_NAME = "control-calidad-v19";
 
 const LOCAL_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./config.js",
   "./manifest.webmanifest",
   "./app-icon.svg",
 ];
@@ -13,6 +14,7 @@ const OPTIONAL_ASSETS = [
   "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css",
   "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css",
   "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
 ];
 
 self.addEventListener("install", (event) => {
