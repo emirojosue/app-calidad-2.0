@@ -2022,15 +2022,38 @@ async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
     _syncStatus: "synced",
     _deleted: false,
   };
-  const { data, error } = await supabaseClient
-    .from("quality_records")
-    .upsert({
-      user_id: state.authUser.id,
-      user_email: state.authUser.email,
-      format_id: formatId,
-      local_id: record.id,
-      record_data: cloudRecord,
-    }, { onConflict: "user_id,format_id,local_id" })
+
+  const payload = {
+    user_id: state.authUser.id,
+    user_email: state.authUser.email,
+    format_id: formatId,
+    local_id: record.id,
+    record_data: cloudRecord,
+  };
+
+  let existingId = record._cloudId;
+  if (!existingId) {
+    const { data: existingRecord, error: findError } = await supabaseClient
+      .from("quality_records")
+      .select("id")
+      .eq("user_id", state.authUser.id)
+      .eq("format_id", formatId)
+      .eq("local_id", record.id)
+      .maybeSingle();
+
+    if (findError) {
+      console.error("No se pudo buscar el registro en la nube", findError);
+      return null;
+    }
+
+    existingId = existingRecord?.id;
+  }
+
+  const request = existingId
+    ? supabaseClient.from("quality_records").update(payload).eq("id", existingId)
+    : supabaseClient.from("quality_records").insert(payload);
+
+  const { data, error } = await request
     .select("id")
     .single();
 
@@ -2041,7 +2064,7 @@ async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
 
   return {
     ...cloudRecord,
-    _cloudId: data.id,
+    _cloudId: data.id || existingId,
     userEmail: state.authUser.email,
   };
 }
