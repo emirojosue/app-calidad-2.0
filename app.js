@@ -647,8 +647,11 @@ function bindEvents() {
   elements.btnLogout?.addEventListener("click", signOutUser);
   elements.btnRefreshUsers?.addEventListener("click", loadAdminUsers);
   elements.adminUsersBody?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-disable-user]");
-    if (button) disableUser(button.dataset.disableUser);
+    const disableButton = event.target.closest("[data-disable-user]");
+    if (disableButton) disableUser(disableButton.dataset.disableUser);
+
+    const deleteButton = event.target.closest("[data-delete-user]");
+    if (deleteButton) deleteUser(deleteButton.dataset.deleteUser);
   });
   elements.btnOpenPorcionado.addEventListener("click", () => showFormatView("porcionado"));
   elements.btnOpenPrefreido.addEventListener("click", () => showFormatView("prefreido"));
@@ -909,9 +912,7 @@ async function loadAdminUsers() {
 
   elements.adminUsersBody.innerHTML = data.map((profile) => {
     const isCurrent = profile.id === state.authUser.id;
-    const action = isCurrent
-      ? "-"
-      : `<button class="btn-delete" type="button" data-disable-user="${profile.id}">Bloquear</button>`;
+    const action = isCurrent ? "-" : renderAdminUserActions(profile);
 
     return `
       <tr>
@@ -922,6 +923,19 @@ async function loadAdminUsers() {
       </tr>
     `;
   }).join("");
+}
+
+function renderAdminUserActions(profile) {
+  const blockButton = profile.disabled
+    ? ""
+    : `<button class="btn-outline-danger" type="button" data-disable-user="${profile.id}">Bloquear</button>`;
+
+  return `
+    <div class="admin-actions">
+      ${blockButton}
+      <button class="btn-delete" type="button" data-delete-user="${profile.id}">Eliminar</button>
+    </div>
+  `;
 }
 
 async function disableUser(userId) {
@@ -935,6 +949,20 @@ async function disableUser(userId) {
   }
 
   await loadAdminUsers();
+}
+
+async function deleteUser(userId) {
+  if (!isSuperUser()) return;
+  if (!window.confirm("Deseas eliminar definitivamente este usuario y sus registros?")) return;
+
+  const { error } = await supabaseClient.rpc("delete_app_user", { target_user_id: userId });
+  if (error) {
+    window.alert(`No se pudo eliminar el usuario.\n\nDetalle: ${error.message}`);
+    return;
+  }
+
+  await loadAdminUsers();
+  if (canSyncCloud()) await syncActiveFormatRecords();
 }
 
 async function initializeAppView() {

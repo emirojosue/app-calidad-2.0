@@ -87,6 +87,28 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
 
+create or replace function public.delete_app_user(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if not public.is_super_user() then
+    raise exception 'Solo el super usuario puede eliminar usuarios';
+  end if;
+
+  if target_user_id = auth.uid() then
+    raise exception 'No puedes eliminar tu propio usuario';
+  end if;
+
+  delete from auth.users
+  where id = target_user_id;
+end;
+$$;
+
+grant execute on function public.delete_app_user(uuid) to authenticated;
+
 drop policy if exists "profiles_select_own_or_super" on public.profiles;
 create policy "profiles_select_own_or_super"
 on public.profiles for select
