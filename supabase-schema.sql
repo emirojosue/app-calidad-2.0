@@ -109,6 +109,8 @@ $$;
 
 grant execute on function public.delete_app_user(uuid) to authenticated;
 
+notify pgrst, 'reload schema';
+
 drop policy if exists "profiles_select_own_or_super" on public.profiles;
 create policy "profiles_select_own_or_super"
 on public.profiles for select

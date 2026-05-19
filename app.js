@@ -957,7 +957,11 @@ async function deleteUser(userId) {
 
   const { error } = await supabaseClient.rpc("delete_app_user", { target_user_id: userId });
   if (error) {
-    window.alert(`No se pudo eliminar el usuario.\n\nDetalle: ${error.message}`);
+    const needsSqlUpdate = error.message?.includes("delete_app_user") || error.message?.includes("schema cache");
+    const helpText = needsSqlUpdate
+      ? "\n\nDebes ejecutar el supabase-schema.sql actualizado en Supabase SQL Editor y esperar unos segundos."
+      : "";
+    window.alert(`No se pudo eliminar el usuario.${helpText}\n\nDetalle: ${error.message}`);
     return;
   }
 
