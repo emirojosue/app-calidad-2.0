@@ -1,6 +1,9 @@
 const STORAGE_KEY = "qualityControlRecords";
 const OTHER_VALUE = "__other__";
 const CLOUD_CONFIG = window.CONTROL_CALIDAD_CONFIG || {};
+const SUPER_USER_NAME = CLOUD_CONFIG.superUserName || "calidad";
+const SUPER_USER_EMAIL = CLOUD_CONFIG.superUserEmail || "calidad@controlcalidad.com";
+const USERNAME_DOMAIN = CLOUD_CONFIG.usernameDomain || "controlcalidad.com";
 
 const measurementGroups = [
   {
@@ -550,6 +553,7 @@ const state = {
   calendarType: "gregorian",
   selectedDate: "",
   activeFormatId: "porcionado",
+  authMode: "login",
   cloudEnabled: false,
   authUser: null,
   authProfile: null,
@@ -572,17 +576,24 @@ async function initApp() {
     return;
   }
 
-  showApp();
-  await initializeAppView();
+  showAuth();
+  showAuthMessage("Configura Supabase en config.js para iniciar sesion o crear usuarios.");
 }
 
 function cacheElements() {
   elements.authShell = document.getElementById("authShell");
+  elements.authLanding = document.getElementById("authLanding");
+  elements.authPanel = document.getElementById("authPanel");
+  elements.authPanelTitle = document.getElementById("authPanelTitle");
+  elements.authPanelSubtitle = document.getElementById("authPanelSubtitle");
   elements.appShell = document.getElementById("appShell");
   elements.authForm = document.getElementById("authForm");
   elements.authEmail = document.getElementById("authEmail");
   elements.authPassword = document.getElementById("authPassword");
-  elements.btnAuthRegister = document.getElementById("btnAuthRegister");
+  elements.btnAuthSubmit = document.getElementById("btnAuthSubmit");
+  elements.btnAuthShowLogin = document.getElementById("btnAuthShowLogin");
+  elements.btnAuthShowRegister = document.getElementById("btnAuthShowRegister");
+  elements.btnAuthBack = document.getElementById("btnAuthBack");
   elements.authMessage = document.getElementById("authMessage");
   elements.userControls = document.getElementById("userControls");
   elements.currentUserLabel = document.getElementById("currentUserLabel");
@@ -621,8 +632,10 @@ function cacheElements() {
 }
 
 function bindEvents() {
-  elements.authForm?.addEventListener("submit", signInUser);
-  elements.btnAuthRegister?.addEventListener("click", registerUser);
+  elements.authForm?.addEventListener("submit", handleAuthSubmit);
+  elements.btnAuthShowLogin?.addEventListener("click", () => showAuthForm("login"));
+  elements.btnAuthShowRegister?.addEventListener("click", () => showAuthForm("register"));
+  elements.btnAuthBack?.addEventListener("click", showAuthLanding);
   elements.btnLogout?.addEventListener("click", signOutUser);
   elements.btnRefreshUsers?.addEventListener("click", loadAdminUsers);
   elements.adminUsersBody?.addEventListener("click", (event) => {
@@ -657,6 +670,10 @@ function bindEvents() {
     if (button) {
       deleteRecord(Number(button.dataset.deleteIndex));
     }
+  });
+
+  window.addEventListener("online", () => {
+    syncActiveFormatRecords();
   });
 }
 
@@ -731,6 +748,7 @@ async function ensureProfile(user) {
 function showAuth() {
   elements.authShell.hidden = false;
   elements.appShell.hidden = true;
+  showAuthLanding();
 }
 
 function showApp() {
@@ -738,27 +756,101 @@ function showApp() {
   elements.appShell.hidden = false;
 }
 
-async function signInUser(event) {
+function showAuthLanding() {
+  state.authMode = "login";
+  elements.authLanding.hidden = false;
+  elements.authPanel.hidden = true;
+  showAuthMessage("");
+  elements.authForm?.reset();
+}
+
+function showAuthForm(mode) {
+  state.authMode = mode;
+  elements.authLanding.hidden = true;
+  elements.authPanel.hidden = false;
+  elements.authPanelTitle.textContent = mode === "register" ? "Crear cuenta" : "Iniciar sesion";
+  elements.authPanelSubtitle.textContent = mode === "register"
+    ? "Registra un operador con usuario o correo y contrasena."
+    : `Ingresa con tu usuario. El super usuario puede entrar como ${SUPER_USER_NAME}.`;
+  elements.btnAuthSubmit.textContent = mode === "register" ? "Crear cuenta" : "Ingresar";
+  elements.authPassword.autocomplete = mode === "register" ? "new-password" : "current-password";
+  showAuthMessage("");
+  elements.authForm.reset();
+  elements.authEmail.focus();
+}
+
+async function handleAuthSubmit(event) {
   event.preventDefault();
+  if (!supabaseClient) {
+    showAuthMessage("Configura Supabase en config.js antes de usar autenticacion.");
+    return;
+  }
+
+  if (state.authMode === "register") {
+    await registerUser();
+    return;
+  }
+
+  await signInUser();
+}
+
+async function signInUser(event) {
   showAuthMessage("Validando acceso...");
+  const email = resolveAuthEmail(elements.authEmail.value);
+  if (!email) {
+    showAuthMessage("Escribe un usuario valido.");
+    return;
+  }
 
   const { error } = await supabaseClient.auth.signInWithPassword({
-    email: elements.authEmail.value.trim(),
+    email,
     password: elements.authPassword.value,
   });
 
-  showAuthMessage(error ? "Correo o contrasena incorrectos." : "");
+  showAuthMessage(error ? `Usuario o contrasena incorrectos: ${error.message}` : "");
 }
 
 async function registerUser() {
   showAuthMessage("Creando usuario...");
+  const username = normalizeUsername(elements.authEmail.value);
+  const email = resolveAuthEmail(elements.authEmail.value);
+  if (!email) {
+    showAuthMessage("Escribe un usuario valido.");
+    return;
+  }
 
-  const { error } = await supabaseClient.auth.signUp({
-    email: elements.authEmail.value.trim(),
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
     password: elements.authPassword.value,
+    options: {
+      data: { username },
+    },
   });
 
-  showAuthMessage(error ? "No se pudo crear el usuario." : "Usuario creado. Revisa el correo si Supabase pide confirmacion.");
+  if (error) {
+    showAuthMessage(`No se pudo crear el usuario: ${error.message}`);
+    return;
+  }
+
+  showAuthMessage(data.session
+    ? "Usuario creado. Entrando..."
+    : "Usuario creado. Si no puedes entrar, desactiva Confirm email en Supabase.");
+}
+
+function resolveAuthEmail(identifier) {
+  const value = identifier.trim().toLowerCase();
+  if (value === SUPER_USER_NAME.toLowerCase()) return SUPER_USER_EMAIL;
+  if (value.includes("@")) return value;
+
+  const username = normalizeUsername(value);
+  return username ? `${username}@${USERNAME_DOMAIN}` : "";
+}
+
+function normalizeUsername(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "");
 }
 
 async function signOutUser() {
@@ -771,7 +863,7 @@ function renderAuthHeader() {
   elements.userControls.hidden = !hasUser;
   elements.adminPanel.hidden = !isSuperUser();
   if (hasUser) {
-    elements.currentUserLabel.textContent = `${state.authUser.email}${isSuperUser() ? " - Super usuario" : ""}`;
+    elements.currentUserLabel.textContent = `${getUserDisplayName()}${isSuperUser() ? " - Super usuario" : ""}`;
   }
 }
 
@@ -781,6 +873,16 @@ function showAuthMessage(message) {
 
 function isSuperUser() {
   return Boolean(state.authUser && state.authProfile?.role === "super");
+}
+
+function getUserDisplayName(user = state.authUser) {
+  if (!user?.email) return "Usuario";
+  if (user.email.toLowerCase() === SUPER_USER_EMAIL.toLowerCase()) return SUPER_USER_NAME;
+
+  const localUsername = `@${USERNAME_DOMAIN}`.toLowerCase();
+  if (user.email.toLowerCase().endsWith(localUsername)) return user.email.split("@")[0];
+
+  return user.email;
 }
 
 async function loadAdminUsers() {
@@ -804,7 +906,7 @@ async function loadAdminUsers() {
 
     return `
       <tr>
-        <td>${escapeHtml(profile.email)}</td>
+        <td>${escapeHtml(getUserDisplayName(profile))}</td>
         <td>${escapeHtml(profile.role)}</td>
         <td>${profile.disabled ? "Bloqueado" : "Activo"}</td>
         <td>${action}</td>
@@ -1295,7 +1397,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=19").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=24").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1723,24 +1825,16 @@ function applyMaduracionFirstRecordInfo() {
 }
 
 async function loadRecords() {
-  if (canUseCloud()) {
-    await loadCloudRecords();
-    return;
-  }
-
-  try {
-    state.records = (JSON.parse(localStorage.getItem(getStorageKey())) || []).map(normalizeRecord);
-  } catch {
-    state.records = [];
-  }
-
+  state.records = loadLocalRecords().filter((record) => !record._deleted);
   renderRecords();
+
+  if (canSyncCloud()) await syncActiveFormatRecords();
 }
 
 async function loadCloudRecords() {
   let query = supabaseClient
     .from("quality_records")
-    .select("id,user_id,user_email,record_data,created_at")
+    .select("id,user_id,user_email,local_id,record_data,created_at")
     .eq("format_id", state.activeFormatId)
     .order("created_at", { ascending: true });
 
@@ -1749,12 +1843,31 @@ async function loadCloudRecords() {
   const { data, error } = await query;
   if (error) {
     window.alert("No se pudieron cargar los registros en la nube.");
-    state.records = [];
+    state.records = loadLocalRecords().filter((record) => !record._deleted);
   } else {
-    state.records = data.map((row) => normalizeRecord({ ...row.record_data, _cloudId: row.id, userEmail: row.user_email }));
+    state.records = data.map(recordFromCloudRow);
+    saveRecords();
   }
 
   renderRecords();
+}
+
+function loadLocalRecords() {
+  try {
+    return (JSON.parse(localStorage.getItem(getStorageKey())) || []).map(normalizeRecord);
+  } catch {
+    return [];
+  }
+}
+
+function recordFromCloudRow(row) {
+  return normalizeRecord({
+    ...row.record_data,
+    id: row.local_id || row.record_data?.id,
+    _cloudId: row.id,
+    userEmail: row.user_email,
+    _syncStatus: "synced",
+  });
 }
 
 function normalizeRecord(record) {
@@ -1774,6 +1887,8 @@ function normalizeRecord(record) {
     medidas: normalizeMeasurements(record.medidas),
     briz: state.activeFormatId === "porcionado" ? normalizeFixedArray(record.briz) : [],
     estado: record.estado || "OK",
+    _syncStatus: record._syncStatus || "",
+    _deleted: Boolean(record._deleted),
   };
 }
 
@@ -1816,31 +1931,95 @@ function normalizeFixedArray(values, length = 5) {
   return Array.from({ length }, (_, index) => values?.[index] || "");
 }
 
-async function saveRecord(record) {
-  if (canUseCloud()) {
-    const { data, error } = await supabaseClient
-      .from("quality_records")
-      .insert({
-        user_id: state.authUser.id,
-        user_email: state.authUser.email,
-        format_id: state.activeFormatId,
-        record_data: record,
-      })
-      .select("id")
-      .single();
+async function syncActiveFormatRecords() {
+  if (!canSyncCloud()) return;
 
-    if (error) {
-      window.alert("No se pudo guardar el registro en la nube.");
-      return false;
+  const localRecords = loadLocalRecords();
+  const retainedLocalRecords = [];
+
+  for (const record of localRecords) {
+    if (record._deleted) {
+      if (record._cloudId) {
+        const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
+        if (error) retainedLocalRecords.push(record);
+      }
+      continue;
     }
 
-    record._cloudId = data.id;
-    state.records.push(record);
-    return true;
+    if (record._syncStatus !== "synced" || !record._cloudId) {
+      const syncedRecord = await uploadRecordToCloud(record);
+      retainedLocalRecords.push(syncedRecord || record);
+    } else {
+      retainedLocalRecords.push(record);
+    }
   }
 
+  const cloudRecords = await fetchCloudRecords();
+  if (!cloudRecords) {
+    state.records = retainedLocalRecords.filter((record) => !record._deleted);
+    saveRecords();
+    renderRecords();
+    return;
+  }
+
+  const merged = new Map();
+  cloudRecords.forEach((record) => merged.set(record.id, record));
+  retainedLocalRecords.forEach((record) => {
+    if (!record._deleted && !merged.has(record.id)) merged.set(record.id, record);
+  });
+
+  state.records = Array.from(merged.values());
+  saveRecords();
+  renderRecords();
+}
+
+async function fetchCloudRecords() {
+  let query = supabaseClient
+    .from("quality_records")
+    .select("id,user_id,user_email,local_id,record_data,created_at")
+    .eq("format_id", state.activeFormatId)
+    .order("created_at", { ascending: true });
+
+  if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
+
+  const { data, error } = await query;
+  if (error) return null;
+
+  return data.map(recordFromCloudRow);
+}
+
+async function uploadRecordToCloud(record) {
+  const cloudRecord = {
+    ...record,
+    _syncStatus: "synced",
+    _deleted: false,
+  };
+  const { data, error } = await supabaseClient
+    .from("quality_records")
+    .upsert({
+      user_id: state.authUser.id,
+      user_email: state.authUser.email,
+      format_id: state.activeFormatId,
+      local_id: record.id,
+      record_data: cloudRecord,
+    }, { onConflict: "user_id,format_id,local_id" })
+    .select("id")
+    .single();
+
+  if (error) return null;
+
+  return {
+    ...cloudRecord,
+    _cloudId: data.id,
+    userEmail: state.authUser.email,
+  };
+}
+
+async function saveRecord(record) {
+  record._syncStatus = canSyncCloud() ? "pending" : "pending";
   state.records.push(record);
   saveRecords();
+  if (canSyncCloud()) await syncActiveFormatRecords();
   return true;
 }
 
@@ -1859,7 +2038,7 @@ function getStorageKey() {
 
 async function deleteRecord(index) {
   const record = state.records[index];
-  if (canUseCloud() && record?._cloudId) {
+  if (canSyncCloud() && record?._cloudId) {
     const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
     if (error) {
       window.alert("No se pudo eliminar el registro en la nube.");
@@ -1867,8 +2046,16 @@ async function deleteRecord(index) {
     }
   }
 
-  state.records.splice(index, 1);
-  if (!canUseCloud()) saveRecords();
+  if (!canSyncCloud() && record?._cloudId) {
+    record._deleted = true;
+    record._syncStatus = "pending-delete";
+    saveRecords();
+    state.records = state.records.filter((item) => !item._deleted);
+  } else {
+    state.records.splice(index, 1);
+    saveRecords();
+  }
+
   renderRecords();
 }
 
@@ -1876,7 +2063,7 @@ async function clearRecords() {
   if (!state.records.length) return;
   if (!window.confirm("¿Deseas borrar todos los registros agregados?")) return;
 
-  if (canUseCloud()) {
+  if (canSyncCloud()) {
     let query = supabaseClient.from("quality_records").delete().eq("format_id", state.activeFormatId);
     if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
 
@@ -1885,15 +2072,27 @@ async function clearRecords() {
       window.alert("No se pudieron borrar los registros en la nube.");
       return;
     }
+    state.records = [];
+    saveRecords();
+    renderRecords();
+    return;
   }
 
+  const deleteMarkers = state.records
+    .filter((record) => record._cloudId)
+    .map((record) => ({ ...record, _deleted: true, _syncStatus: "pending-delete" }));
+  state.records = deleteMarkers;
+  saveRecords();
   state.records = [];
-  if (!canUseCloud()) saveRecords();
   renderRecords();
 }
 
 function canUseCloud() {
   return Boolean(state.cloudEnabled && supabaseClient && state.authUser);
+}
+
+function canSyncCloud() {
+  return canUseCloud() && navigator.onLine;
 }
 
 function renderRecords() {

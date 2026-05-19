@@ -13,10 +13,32 @@ create table if not exists public.quality_records (
   user_id uuid not null references auth.users(id) on delete cascade,
   user_email text not null,
   format_id text not null,
+  local_id text,
   record_data jsonb not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.quality_records
+add column if not exists local_id text;
+
+create unique index if not exists quality_records_user_format_local_idx
+on public.quality_records (user_id, format_id, local_id)
+where local_id is not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'quality_records_user_format_local_key'
+  ) then
+    alter table public.quality_records
+    add constraint quality_records_user_format_local_key
+    unique (user_id, format_id, local_id);
+  end if;
+end;
+$$;
 
 alter table public.profiles enable row level security;
 alter table public.quality_records enable row level security;
@@ -35,6 +57,35 @@ as $$
       and disabled = false
   );
 $$;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, role, disabled)
+  values (
+    new.id,
+    new.email,
+    case
+      when lower(new.email) = 'calidad@controlcalidad.com' then 'super'
+      else 'user'
+    end,
+    false
+  )
+  on conflict (id) do update
+    set email = excluded.email;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_user();
 
 drop policy if exists "profiles_select_own_or_super" on public.profiles;
 create policy "profiles_select_own_or_super"
@@ -80,5 +131,9 @@ on public.quality_records for delete
 to authenticated
 using (user_id = auth.uid() or public.is_super_user());
 
--- Despues de crear el super usuario desde la app, ejecuta algo como:
--- update public.profiles set role = 'super' where email = 'admin@controlcalidad.com';
+-- Para el super usuario:
+-- 1. En la app, crea la cuenta con usuario "calidad".
+-- 2. Si ya existia antes de este trigger, en Supabase SQL Editor ejecuta:
+-- update public.profiles set role = 'super' where email = 'calidad@controlcalidad.com';
+-- 3. Si Supabase pide confirmar correo y usas un correo interno, ejecuta:
+-- update auth.users set email_confirmed_at = now() where email = 'calidad@controlcalidad.com';
