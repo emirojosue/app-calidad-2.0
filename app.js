@@ -4,6 +4,13 @@ const CLOUD_CONFIG = window.CONTROL_CALIDAD_CONFIG || {};
 const SUPER_USER_NAME = CLOUD_CONFIG.superUserName || "calidad";
 const SUPER_USER_EMAIL = CLOUD_CONFIG.superUserEmail || "calidad@controlcalidad.com";
 const USERNAME_DOMAIN = CLOUD_CONFIG.usernameDomain || "controlcalidad.com";
+const FORMAT_STORAGE_KEYS = {
+  porcionado: STORAGE_KEY,
+  prefreido: `${STORAGE_KEY}:prefreido`,
+  iqf: `${STORAGE_KEY}:iqf`,
+  maduracion: `${STORAGE_KEY}:maduracion`,
+  recibo: `${STORAGE_KEY}:recibo`,
+};
 
 const measurementGroups = [
   {
@@ -673,7 +680,7 @@ function bindEvents() {
   });
 
   window.addEventListener("online", () => {
-    syncActiveFormatRecords();
+    syncAllFormatRecords();
   });
 }
 
@@ -718,6 +725,7 @@ async function handleSignedIn(user) {
 
   showApp();
   renderAuthHeader();
+  await syncAllFormatRecords({ renderActive: false });
   await initializeAppView();
   if (isSuperUser()) await loadAdminUsers();
 }
@@ -1825,17 +1833,17 @@ function applyMaduracionFirstRecordInfo() {
 }
 
 async function loadRecords() {
-  state.records = loadLocalRecords().filter((record) => !record._deleted);
+  state.records = loadLocalRecords(state.activeFormatId).filter((record) => !record._deleted);
   renderRecords();
 
   if (canSyncCloud()) await syncActiveFormatRecords();
 }
 
-async function loadCloudRecords() {
+async function loadCloudRecords(formatId = state.activeFormatId) {
   let query = supabaseClient
     .from("quality_records")
     .select("id,user_id,user_email,local_id,record_data,created_at")
-    .eq("format_id", state.activeFormatId)
+    .eq("format_id", formatId)
     .order("created_at", { ascending: true });
 
   if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
@@ -1843,34 +1851,34 @@ async function loadCloudRecords() {
   const { data, error } = await query;
   if (error) {
     window.alert("No se pudieron cargar los registros en la nube.");
-    state.records = loadLocalRecords().filter((record) => !record._deleted);
+    state.records = loadLocalRecords(formatId).filter((record) => !record._deleted);
   } else {
-    state.records = data.map(recordFromCloudRow);
-    saveRecords();
+    state.records = data.map((row) => recordFromCloudRow(row, formatId));
+    saveRecords(formatId, state.records);
   }
 
   renderRecords();
 }
 
-function loadLocalRecords() {
+function loadLocalRecords(formatId = state.activeFormatId) {
   try {
-    return (JSON.parse(localStorage.getItem(getStorageKey())) || []).map(normalizeRecord);
+    return (JSON.parse(localStorage.getItem(getStorageKey(formatId))) || []).map((record) => normalizeRecord(record, formatId));
   } catch {
     return [];
   }
 }
 
-function recordFromCloudRow(row) {
+function recordFromCloudRow(row, formatId = state.activeFormatId) {
   return normalizeRecord({
     ...row.record_data,
     id: row.local_id || row.record_data?.id,
     _cloudId: row.id,
     userEmail: row.user_email,
     _syncStatus: "synced",
-  });
+  }, formatId);
 }
 
-function normalizeRecord(record) {
+function normalizeRecord(record, formatId = state.activeFormatId) {
   return {
     id: record.id || crypto.randomUUID?.() || String(Date.now()),
     _cloudId: record._cloudId,
@@ -1884,37 +1892,37 @@ function normalizeRecord(record) {
     realizadoPor: record.realizadoPor || "",
     verificadoPor: record.verificadoPor || "",
     observaciones: record.observaciones || "",
-    medidas: normalizeMeasurements(record.medidas),
-    briz: state.activeFormatId === "porcionado" ? normalizeFixedArray(record.briz) : [],
+    medidas: normalizeMeasurements(record.medidas, formatId),
+    briz: formatId === "porcionado" ? normalizeFixedArray(record.briz) : [],
     estado: record.estado || "OK",
     _syncStatus: record._syncStatus || "",
     _deleted: Boolean(record._deleted),
   };
 }
 
-function normalizeMeasurements(measurements = {}) {
-  if (state.activeFormatId === "maduracion") {
+function normalizeMeasurements(measurements = {}, formatId = state.activeFormatId) {
+  if (formatId === "maduracion") {
     return maduracionGroups.reduce((result, field) => {
       result[field.id] = measurements[field.id] || "";
       return result;
     }, {});
   }
 
-  if (state.activeFormatId === "recibo") {
+  if (formatId === "recibo") {
     return reciboGroups.reduce((result, field) => {
       result[field.id] = measurements[field.id] || "";
       return result;
     }, {});
   }
 
-  if (state.activeFormatId === "iqf") {
+  if (formatId === "iqf") {
     return iqfGroups.reduce((result, group) => {
       result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
       return result;
     }, {});
   }
 
-  if (state.activeFormatId === "prefreido") {
+  if (formatId === "prefreido") {
     return prefreidoGroups.reduce((result, group) => {
       result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
       return result;
@@ -1932,9 +1940,21 @@ function normalizeFixedArray(values, length = 5) {
 }
 
 async function syncActiveFormatRecords() {
+  await syncFormatRecords(state.activeFormatId, { renderActive: true });
+}
+
+async function syncAllFormatRecords({ renderActive = true } = {}) {
   if (!canSyncCloud()) return;
 
-  const localRecords = loadLocalRecords();
+  for (const formatId of Object.keys(FORMAT_STORAGE_KEYS)) {
+    await syncFormatRecords(formatId, { renderActive: renderActive && formatId === state.activeFormatId });
+  }
+}
+
+async function syncFormatRecords(formatId, { renderActive = true } = {}) {
+  if (!canSyncCloud()) return;
+
+  const localRecords = loadLocalRecords(formatId);
   const retainedLocalRecords = [];
 
   for (const record of localRecords) {
@@ -1947,18 +1967,22 @@ async function syncActiveFormatRecords() {
     }
 
     if (record._syncStatus !== "synced" || !record._cloudId) {
-      const syncedRecord = await uploadRecordToCloud(record);
+      const syncedRecord = await uploadRecordToCloud(record, formatId);
       retainedLocalRecords.push(syncedRecord || record);
     } else {
       retainedLocalRecords.push(record);
     }
   }
 
-  const cloudRecords = await fetchCloudRecords();
+  const cloudRecords = await fetchCloudRecords(formatId);
   if (!cloudRecords) {
-    state.records = retainedLocalRecords.filter((record) => !record._deleted);
-    saveRecords();
-    renderRecords();
+    if (formatId === state.activeFormatId) {
+      state.records = retainedLocalRecords.filter((record) => !record._deleted);
+      saveRecords(formatId, state.records);
+      if (renderActive) renderRecords();
+    } else {
+      saveRecords(formatId, retainedLocalRecords.filter((record) => !record._deleted));
+    }
     return;
   }
 
@@ -1968,16 +1992,20 @@ async function syncActiveFormatRecords() {
     if (!record._deleted && !merged.has(record.id)) merged.set(record.id, record);
   });
 
-  state.records = Array.from(merged.values());
-  saveRecords();
-  renderRecords();
+  const syncedRecords = Array.from(merged.values());
+  saveRecords(formatId, syncedRecords);
+
+  if (formatId === state.activeFormatId) {
+    state.records = syncedRecords;
+    if (renderActive) renderRecords();
+  }
 }
 
-async function fetchCloudRecords() {
+async function fetchCloudRecords(formatId = state.activeFormatId) {
   let query = supabaseClient
     .from("quality_records")
     .select("id,user_id,user_email,local_id,record_data,created_at")
-    .eq("format_id", state.activeFormatId)
+    .eq("format_id", formatId)
     .order("created_at", { ascending: true });
 
   if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
@@ -1985,10 +2013,10 @@ async function fetchCloudRecords() {
   const { data, error } = await query;
   if (error) return null;
 
-  return data.map(recordFromCloudRow);
+  return data.map((row) => recordFromCloudRow(row, formatId));
 }
 
-async function uploadRecordToCloud(record) {
+async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
   const cloudRecord = {
     ...record,
     _syncStatus: "synced",
@@ -1999,14 +2027,17 @@ async function uploadRecordToCloud(record) {
     .upsert({
       user_id: state.authUser.id,
       user_email: state.authUser.email,
-      format_id: state.activeFormatId,
+      format_id: formatId,
       local_id: record.id,
       record_data: cloudRecord,
     }, { onConflict: "user_id,format_id,local_id" })
     .select("id")
     .single();
 
-  if (error) return null;
+  if (error) {
+    console.error("No se pudo sincronizar el registro", error);
+    return null;
+  }
 
   return {
     ...cloudRecord,
@@ -2019,21 +2050,22 @@ async function saveRecord(record) {
   record._syncStatus = canSyncCloud() ? "pending" : "pending";
   state.records.push(record);
   saveRecords();
-  if (canSyncCloud()) await syncActiveFormatRecords();
+  if (canSyncCloud()) {
+    await syncActiveFormatRecords();
+    const syncedRecord = state.records.find((item) => item.id === record.id);
+    if (!syncedRecord?._cloudId) {
+      window.alert("El registro quedo guardado en este equipo, pero no se pudo sincronizar con la nube. Verifica internet y la tabla quality_records en Supabase.");
+    }
+  }
   return true;
 }
 
-function saveRecords() {
-  localStorage.setItem(getStorageKey(), JSON.stringify(state.records));
+function saveRecords(formatId = state.activeFormatId, records = state.records) {
+  localStorage.setItem(getStorageKey(formatId), JSON.stringify(records));
 }
 
-function getStorageKey() {
-  if (state.activeFormatId === "prefreido") return `${STORAGE_KEY}:prefreido`;
-  if (state.activeFormatId === "iqf") return `${STORAGE_KEY}:iqf`;
-  if (state.activeFormatId === "maduracion") return `${STORAGE_KEY}:maduracion`;
-  if (state.activeFormatId === "recibo") return `${STORAGE_KEY}:recibo`;
-
-  return STORAGE_KEY;
+function getStorageKey(formatId = state.activeFormatId) {
+  return FORMAT_STORAGE_KEYS[formatId] || STORAGE_KEY;
 }
 
 async function deleteRecord(index) {
