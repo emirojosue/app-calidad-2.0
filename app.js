@@ -564,6 +564,7 @@ const state = {
   cloudEnabled: false,
   authUser: null,
   authProfile: null,
+  cloudSyncError: null,
 };
 
 const elements = {};
@@ -2002,6 +2003,7 @@ async function syncFormatRecords(formatId, { renderActive = true } = {}) {
 }
 
 async function fetchCloudRecords(formatId = state.activeFormatId) {
+  state.cloudSyncError = null;
   let query = supabaseClient
     .from("quality_records")
     .select("id,user_id,user_email,local_id,record_data,created_at")
@@ -2011,12 +2013,17 @@ async function fetchCloudRecords(formatId = state.activeFormatId) {
   if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
 
   const { data, error } = await query;
-  if (error) return null;
+  if (error) {
+    state.cloudSyncError = error;
+    console.error("No se pudieron cargar los registros en la nube", error);
+    return null;
+  }
 
   return data.map((row) => recordFromCloudRow(row, formatId));
 }
 
 async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
+  state.cloudSyncError = null;
   const cloudRecord = {
     ...record,
     _syncStatus: "synced",
@@ -2042,6 +2049,7 @@ async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
       .maybeSingle();
 
     if (findError) {
+      state.cloudSyncError = findError;
       console.error("No se pudo buscar el registro en la nube", findError);
       return null;
     }
@@ -2058,6 +2066,7 @@ async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
     .single();
 
   if (error) {
+    state.cloudSyncError = error;
     console.error("No se pudo sincronizar el registro", error);
     return null;
   }
@@ -2077,10 +2086,22 @@ async function saveRecord(record) {
     await syncActiveFormatRecords();
     const syncedRecord = state.records.find((item) => item.id === record.id);
     if (!syncedRecord?._cloudId) {
-      window.alert("El registro quedo guardado en este equipo, pero no se pudo sincronizar con la nube. Verifica internet y la tabla quality_records en Supabase.");
+      window.alert(`El registro quedo guardado en este equipo, pero no se pudo sincronizar con la nube.\n\nDetalle: ${getCloudErrorMessage()}`);
     }
   }
   return true;
+}
+
+function getCloudErrorMessage() {
+  const error = state.cloudSyncError;
+  if (!error) return "No se recibio detalle de Supabase. Verifica internet y que la tabla quality_records exista.";
+
+  return [
+    error.message,
+    error.details,
+    error.hint,
+    error.code ? `Codigo: ${error.code}` : "",
+  ].filter(Boolean).join(" | ");
 }
 
 function saveRecords(formatId = state.activeFormatId, records = state.records) {
