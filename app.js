@@ -1202,8 +1202,7 @@ function renderMaduracionField(field) {
 
 function renderSelectWithOther(id, options, attributes = "", config = {}) {
   const otherId = `${id}Otro`;
-  const otherType = config.min !== undefined || config.max !== undefined || config.step ? "number" : "text";
-  const otherStep = config.step ? `step="${config.step}"` : "";
+  const isNumericOther = config.min !== undefined || config.max !== undefined || config.step;
   const allowOther = config.allowOther !== false;
   const optionItems = options
     .map((option) => `<option value="${option}">${option}</option>`)
@@ -1218,10 +1217,10 @@ function renderSelectWithOther(id, options, attributes = "", config = {}) {
     ${allowOther ? `
       <input
         class="form-control measure-input other-input"
-        type="${otherType}"
+        type="text"
         id="${otherId}"
         ${attributes}
-        ${otherStep}
+        ${isNumericOther ? 'inputmode="decimal"' : ""}
         placeholder="Escribir otro..."
         hidden
       >
@@ -1438,7 +1437,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=24").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=31").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1597,7 +1596,7 @@ function getMonthNameFromDisplay(displayDate) {
 }
 
 function checkRange(input) {
-  const value = Number(input.value);
+  const value = parseMeasurementNumber(input.value);
   const hasMin = input.dataset.rangeMin !== undefined;
   const hasMax = input.dataset.rangeMax !== undefined;
   const min = Number(input.dataset.rangeMin);
@@ -1605,12 +1604,17 @@ function checkRange(input) {
 
   input.classList.remove("in-range", "out-range");
 
-  if (input.value === "" || Number.isNaN(value)) return;
+  if (input.value === "" || input.value === OTHER_VALUE) return;
 
   const underMin = hasMin && value < min;
   const overMax = hasMax && value > max;
 
-  input.classList.add(underMin || overMax ? "out-range" : "in-range");
+  input.classList.add(Number.isNaN(value) || underMin || overMax ? "out-range" : "in-range");
+}
+
+function parseMeasurementNumber(value) {
+  if (value === null || value === undefined) return Number.NaN;
+  return Number(String(value).trim().replace(",", "."));
 }
 
 async function addRecord(event) {
@@ -1713,7 +1717,7 @@ function getRecordStatus(record) {
       if (group.options || (group.min === undefined && group.max === undefined)) return false;
 
       return record.medidas[group.id].some((value) => {
-        const number = Number(value);
+        const number = parseMeasurementNumber(value);
         const underMin = group.min !== undefined && number < group.min;
         const overMax = group.max !== undefined && number > group.max;
 
@@ -1732,7 +1736,7 @@ function getRecordStatus(record) {
       if (group.options) return false;
 
       return record.medidas[group.id].some((value) => {
-        const number = Number(value);
+        const number = parseMeasurementNumber(value);
         return Number.isNaN(number) || number < group.min || number > group.max;
       });
     });
@@ -1747,13 +1751,13 @@ function getRecordStatus(record) {
 
   const hasOutOfRange = measurementGroups.some((group) => {
     return record.medidas[group.id].some((value) => {
-      const number = Number(value);
-      return number < group.min || number > group.max;
+      const number = parseMeasurementNumber(value);
+      return Number.isNaN(number) || number < group.min || number > group.max;
     });
   });
 
   const hasBrixOutOfRange = record.briz.some((value) => {
-    const number = Number(value);
+    const number = parseMeasurementNumber(value);
     return Number.isNaN(number) || number < brixRange.min || number > brixRange.max;
   });
 
