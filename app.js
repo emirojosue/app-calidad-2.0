@@ -31,7 +31,7 @@ const measurementGroups = [
     unit: "cm",
     min: 6,
     max: 9,
-    step: 0.5,
+    step: 0.1,
   },
   {
     id: "amplitud",
@@ -1437,7 +1437,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=31").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=32").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
