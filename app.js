@@ -1553,18 +1553,14 @@ function getWeekYear(dateString) {
 }
 
 function getLotCode(dateString) {
-  const weekYear = getWeekYear(dateString);
-  if (!weekYear) return "";
-
-  if (state.activeFormatId === "recibo") {
-    return getDayOfYearCode(dateString);
-  }
-
   if (state.activeFormatId === "iqf") {
+    const weekYear = getWeekYear(dateString);
+    if (!weekYear) return "";
+
     return `W${weekYear.replace("-", "")}`;
   }
 
-  return weekYear;
+  return getDayOfYearCode(dateString);
 }
 
 function getDayOfYearCode(dateString) {
