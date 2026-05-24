@@ -625,6 +625,10 @@ function cacheElements() {
   elements.loteProduccion = document.getElementById("loteProduccion");
   elements.horaInicio = document.getElementById("horaInicio");
   elements.cuartoMaduracion = document.getElementById("cuartoMaduracion");
+  elements.iqfExtraFields = document.getElementById("iqfExtraFields");
+  elements.referenciaIqf = document.getElementById("referenciaIqf");
+  elements.arteIqf = document.getElementById("arteIqf");
+  elements.resistenciaIqf = document.getElementById("resistenciaIqf");
   elements.observaciones = document.getElementById("observaciones");
   elements.measurementsContainer = document.getElementById("measurementsContainer");
   elements.recordsHead = document.getElementById("recordsHead");
@@ -971,6 +975,7 @@ async function deleteUser(userId) {
 
 async function initializeAppView() {
   renderMeasurementFields();
+  updateIqfExtraFields();
   renderTableHeader();
   setInitialDateTime();
   await loadRecords();
@@ -980,6 +985,7 @@ async function showFormatView(formatId) {
   state.activeFormatId = formatId;
   elements.formatViewTitle.textContent = formatTitles[formatId];
   renderMeasurementFields();
+  updateIqfExtraFields();
   renderTableHeader();
   await loadRecords();
   handleDateChange();
@@ -1035,6 +1041,15 @@ function renderMeasurementFields() {
 
   bindMeasurementInputEvents();
 
+}
+
+function updateIqfExtraFields() {
+  const isIqf = state.activeFormatId === "iqf";
+  elements.iqfExtraFields.hidden = !isIqf;
+  [elements.referenciaIqf, elements.arteIqf, elements.resistenciaIqf].forEach((input) => {
+    input.required = isIqf;
+    if (!isIqf) input.value = "";
+  });
 }
 
 function renderPrefreidoMeasurementGroup(group) {
@@ -1350,6 +1365,9 @@ function getTableColumns() {
       "Estado",
       "Realizado",
       "Verificado",
+      "Referencia",
+      "Arte",
+      "Resistencia",
       "Obs.",
       "AcciÃ³n",
     ];
@@ -1437,7 +1455,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=32").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=33").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1632,6 +1650,9 @@ async function addRecord(event) {
     lote: getValue("loteProduccion"),
     realizadoPor: getValue("realizadoPor"),
     verificadoPor: getValue("verificadoPor"),
+    referencia: state.activeFormatId === "iqf" ? getValue("referenciaIqf") : "",
+    arte: state.activeFormatId === "iqf" ? getValue("arteIqf") : "",
+    resistencia: state.activeFormatId === "iqf" ? getValue("resistenciaIqf") : "",
     observaciones: getValue("observaciones"),
     medidas: collectMeasurements(),
     briz: state.activeFormatId === "porcionado" ? collectBriz() : [],
@@ -1727,8 +1748,9 @@ function getRecordStatus(record) {
     const hasNonConforming = ["selladoVertical", "selladoHorizontal", "materialExtranoIqf"].some((groupId) => {
       return record.medidas[groupId].some((value) => ["No conforme", "Presente"].includes(value));
     });
+    const hasNonConformingExtras = [record.arte, record.resistencia].includes("No conforme");
 
-    return hasOutOfRange || hasNonConforming ? "Revisar" : "OK";
+    return hasOutOfRange || hasNonConforming || hasNonConformingExtras ? "Revisar" : "OK";
   }
 
   if (state.activeFormatId === "prefreido") {
@@ -1924,6 +1946,9 @@ function normalizeRecord(record, formatId = state.activeFormatId) {
     lote: record.lote || "",
     realizadoPor: record.realizadoPor || "",
     verificadoPor: record.verificadoPor || "",
+    referencia: record.referencia || "",
+    arte: record.arte || "",
+    resistencia: record.resistencia || "",
     observaciones: record.observaciones || "",
     medidas: normalizeMeasurements(record.medidas, formatId),
     briz: formatId === "porcionado" ? normalizeFixedArray(record.briz) : [],
@@ -2286,6 +2311,7 @@ function renderRecordRow(record, index) {
       <td><span class="status-badge ${statusClass}">${record.estado}</span></td>
       <td>${escapeHtml(record.realizadoPor)}</td>
       <td>${escapeHtml(record.verificadoPor)}</td>
+      ${renderIqfExtraRecordCells(record)}
       <td>${escapeHtml(record.observaciones || "-")}</td>
       <td>
         <button class="btn-delete" type="button" data-delete-index="${index}">
@@ -2293,6 +2319,16 @@ function renderRecordRow(record, index) {
         </button>
       </td>
     </tr>
+  `;
+}
+
+function renderIqfExtraRecordCells(record) {
+  if (state.activeFormatId !== "iqf") return "";
+
+  return `
+    <td>${escapeHtml(record.referencia || "-")}</td>
+    <td>${escapeHtml(record.arte || "-")}</td>
+    <td>${escapeHtml(record.resistencia || "-")}</td>
   `;
 }
 
@@ -2450,6 +2486,9 @@ function getExportRows() {
       Estado: record.estado,
       "Realizado por": record.realizadoPor,
       "Verificado por": record.verificadoPor,
+      Referencia: record.referencia,
+      Arte: record.arte,
+      Resistencia: record.resistencia,
       Observaciones: record.observaciones,
     }));
   }
