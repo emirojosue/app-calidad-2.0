@@ -600,6 +600,7 @@ let supabaseClient = null;
 const backgroundSyncState = {
   active: new Set(),
   queued: new Map(),
+  timers: new Map(),
 };
 
 document.addEventListener("DOMContentLoaded", initApp);
@@ -722,7 +723,7 @@ function bindEvents() {
   });
 
   window.addEventListener("online", () => {
-    queueAllFormatSyncs();
+    queueAllFormatSyncs({ delay: 1000 });
   });
 }
 
@@ -768,7 +769,7 @@ async function handleSignedIn(user) {
   showApp();
   renderAuthHeader();
   await initializeAppView();
-  queueAllFormatSyncs({ full: true, renderActive: false });
+  queueAllFormatSyncs({ renderActive: false, delay: 1500 });
   if (isSuperUser()) await loadAdminUsers();
 }
 
@@ -1004,7 +1005,7 @@ async function deleteUser(userId) {
   }
 
   await loadAdminUsers();
-  queueFormatSync(state.activeFormatId, { full: true });
+  queueFormatSync(state.activeFormatId, { delay: 1000 });
 }
 
 async function initializeAppView() {
@@ -1012,7 +1013,7 @@ async function initializeAppView() {
   renderMeasurementFields();
   renderTableHeader();
   setInitialDateTime();
-  await loadRecords();
+  loadRecords();
 }
 
 async function showFormatView(formatId) {
@@ -1021,7 +1022,7 @@ async function showFormatView(formatId) {
   updateFormatSpecificFields();
   renderMeasurementFields();
   renderTableHeader();
-  await loadRecords();
+  loadRecords();
   handleDateChange();
   clearFormInputs();
   applyRememberedGeneralInfo();
@@ -2002,11 +2003,11 @@ function applyMaduracionFirstRecordInfo() {
   });
 }
 
-async function loadRecords() {
+function loadRecords() {
   state.records = loadLocalRecords(state.activeFormatId).filter((record) => !record._deleted);
   renderRecords();
 
-  queueFormatSync(state.activeFormatId, { full: true });
+  queueFormatSync(state.activeFormatId, { delay: 1000 });
 }
 
 async function loadCloudRecords(formatId = state.activeFormatId) {
@@ -2138,13 +2139,13 @@ async function syncAllFormatRecords({ renderActive = true } = {}) {
   }
 }
 
-function queueAllFormatSyncs({ full = false, renderActive = true } = {}) {
+function queueAllFormatSyncs({ full = false, renderActive = true, delay = 0 } = {}) {
   Object.keys(FORMAT_STORAGE_KEYS).forEach((formatId) => {
-    queueFormatSync(formatId, { full, renderActive: renderActive && formatId === state.activeFormatId });
+    queueFormatSync(formatId, { full, renderActive: renderActive && formatId === state.activeFormatId, delay });
   });
 }
 
-function queueFormatSync(formatId = state.activeFormatId, { full = false, renderActive = true } = {}) {
+function queueFormatSync(formatId = state.activeFormatId, { full = false, renderActive = true, delay = 0 } = {}) {
   if (!canUseCloud()) return;
 
   const currentQueued = backgroundSyncState.queued.get(formatId);
@@ -2155,8 +2156,13 @@ function queueFormatSync(formatId = state.activeFormatId, { full = false, render
   backgroundSyncState.queued.set(formatId, nextOptions);
 
   if (backgroundSyncState.active.has(formatId)) return;
+  if (backgroundSyncState.timers.has(formatId)) return;
 
-  window.setTimeout(() => runQueuedFormatSync(formatId), 0);
+  const timer = window.setTimeout(() => {
+    backgroundSyncState.timers.delete(formatId);
+    runQueuedFormatSync(formatId);
+  }, delay);
+  backgroundSyncState.timers.set(formatId, timer);
 }
 
 async function runQueuedFormatSync(formatId) {
