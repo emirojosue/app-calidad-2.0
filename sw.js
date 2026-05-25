@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-calidad-v33";
+const CACHE_NAME = "control-calidad-v34";
 
 const LOCAL_ASSETS = [
   "./",
@@ -39,13 +39,22 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  const requestUrl = new URL(event.request.url);
+  const isLocalAsset = requestUrl.origin === self.location.origin;
+  const isOptionalAsset = OPTIONAL_ASSETS.some((asset) => event.request.url === asset);
+  if (!isLocalAsset && !isOptionalAsset) return;
+
   event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        const responseCopy = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseCopy));
-        return networkResponse;
-      })
-      .catch(() => caches.match(event.request).then((cachedResponse) => cachedResponse || caches.match("./index.html")))
+    caches.match(event.request).then((cachedResponse) => {
+      const networkUpdate = fetch(event.request)
+        .then((networkResponse) => {
+          const responseCopy = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseCopy));
+          return networkResponse;
+        })
+        .catch(() => null);
+
+      return cachedResponse || networkUpdate.then((networkResponse) => networkResponse || caches.match("./index.html"));
+    })
   );
 });

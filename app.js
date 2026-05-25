@@ -10,9 +10,20 @@ const FORMAT_STORAGE_KEYS = {
   iqf: `${STORAGE_KEY}:iqf`,
   maduracion: `${STORAGE_KEY}:maduracion`,
   recibo: `${STORAGE_KEY}:recibo`,
+  novedades: `${STORAGE_KEY}:novedades`,
 };
 
 const measurementGroups = [
+  {
+    id: "temperaturaAmbiente",
+    title: "Temperatura ambiente",
+    icon: "bi-thermometer-half",
+    label: "Temperatura ambiente",
+    unit: "&deg;C",
+    inputType: "number",
+    step: 0.1,
+    count: 1,
+  },
   {
     id: "peso",
     title: "Peso tajada al ingreso del freído (32-45 g)",
@@ -73,6 +84,8 @@ const maduracionFirstRecordAutofillIds = [
   "tempCuartoMaduracion",
   "humedadCuartoMaduracion",
 ];
+const cuartoMaduracionOptions = ["1", "2", "3", "4", "5", "6"];
+const novedadesAreaOptions = ["Pelado y porcionado", "Prefrito, picking e IQF", "IQF y empaque"];
 const brixSuggestions = buildRangeOptions(brixRange.min, brixRange.max, brixRange.step);
 const tableColumns = [
   "#",
@@ -81,6 +94,7 @@ const tableColumns = [
   "Hora",
   "Cuarto",
   "Lote",
+  "TA",
   "P1",
   "P2",
   "P3",
@@ -253,10 +267,10 @@ const iqfGroups = [
   },
   {
     id: "brixSalidaIqf",
-    title: "Brix de salida IQF (29-32)",
+    title: "Brix de salida IQF (30-32)",
     icon: "bi-flower1",
     label: "Brix salida",
-    min: 29,
+    min: 30,
     max: 32,
     step: 0.1,
     columnPrefix: "BSI",
@@ -267,7 +281,7 @@ const iqfGroups = [
     title: "Producto terminado - Peso neto",
     icon: "bi-box-seam-fill",
     label: "Peso neto",
-    unit: "g",
+    unit: "kg",
     inputType: "number",
     step: 0.1,
     columnPrefix: "PT",
@@ -278,10 +292,7 @@ const iqfGroups = [
     title: "Verificacion de loteado",
     icon: "bi-upc-scan",
     label: "Loteado",
-    inputType: "text",
-    valueFrom: "loteProduccion",
-    prefix: "W",
-    readonly: true,
+    options: ["Conforme", "No conforme"],
     count: 1,
     columnPrefix: "VL",
     exportLabel: "Loteado",
@@ -315,6 +326,36 @@ const iqfGroups = [
     count: 1,
     columnPrefix: "ME",
     exportLabel: "Material extrano",
+  },
+  {
+    id: "referenciaIqf",
+    title: "Referencia",
+    icon: "bi-card-text",
+    label: "Referencia",
+    inputType: "text",
+    count: 1,
+    columnPrefix: "REF",
+    exportLabel: "Referencia",
+  },
+  {
+    id: "arteIqf",
+    title: "Arte",
+    icon: "bi-palette-fill",
+    label: "Arte",
+    options: ["Conforme", "No conforme"],
+    count: 1,
+    columnPrefix: "AR",
+    exportLabel: "Arte",
+  },
+  {
+    id: "resistenciaIqf",
+    title: "Resistencia",
+    icon: "bi-shield-check",
+    label: "Resistencia",
+    options: ["Conforme", "No conforme"],
+    count: 1,
+    columnPrefix: "RS",
+    exportLabel: "Resistencia",
   },
 ];
 
@@ -399,15 +440,6 @@ const reciboGroups = [
     columnLabel: "Peso verde (g)",
   },
   {
-    id: "pesoPulpa",
-    title: "Mediciones de platano verde",
-    icon: "bi-rulers",
-    label: "Peso pulpa (g)",
-    inputType: "number",
-    step: 0.1,
-    columnLabel: "Peso pulpa (g)",
-  },
-  {
     id: "longitudRecibo",
     title: "Mediciones de platano verde",
     icon: "bi-rulers",
@@ -453,15 +485,6 @@ const reciboGroups = [
     columnLabel: "Olor",
   },
   {
-    id: "saborRecibo",
-    title: "Condiciones organolepticas",
-    icon: "bi-search",
-    label: "Sabor",
-    options: ["Dulce", "Amargo"],
-    allowOther: false,
-    columnLabel: "Sabor",
-  },
-  {
     id: "colorRecibo",
     title: "Condiciones organolepticas",
     icon: "bi-search",
@@ -493,16 +516,20 @@ const maduracionGroups = [
     id: "tempCuartoMaduracion",
     title: "Seguimiento de maduracion",
     icon: "bi-graph-up-arrow",
-    label: "Temperatura cuarto de maduracion (&deg;C)",
+    label: "Temperatura cuarto de maduracion (24&deg;C-27&deg;C)",
     inputType: "number",
+    min: 24,
+    max: 27,
     step: 0.1,
   },
   {
     id: "humedadCuartoMaduracion",
     title: "Seguimiento de maduracion",
     icon: "bi-graph-up-arrow",
-    label: "Humedad relativa cuarto de maduracion (%Hr)",
+    label: "Humedad relativa cuarto de maduracion (80%Hr-90%Hr)",
     inputType: "number",
+    min: 80,
+    max: 90,
     step: 0.1,
   },
   {
@@ -553,6 +580,7 @@ const formatTitles = {
   iqf: "Formato de control IQF y empaque",
   maduracion: "Formato de seguimiento de maduracion",
   recibo: "Formato de seguimiento de recibo",
+  novedades: "Formato de novedades",
 };
 
 const state = {
@@ -569,6 +597,10 @@ const state = {
 
 const elements = {};
 let supabaseClient = null;
+const backgroundSyncState = {
+  active: new Set(),
+  queued: new Map(),
+};
 
 document.addEventListener("DOMContentLoaded", initApp);
 
@@ -616,6 +648,7 @@ function cacheElements() {
   elements.btnOpenIqf = document.getElementById("btnOpenIqf");
   elements.btnOpenMaduracion = document.getElementById("btnOpenMaduracion");
   elements.btnOpenRecibo = document.getElementById("btnOpenRecibo");
+  elements.btnOpenNovedades = document.getElementById("btnOpenNovedades");
   elements.btnBackToMenu = document.getElementById("btnBackToMenu");
   elements.formatViewTitle = document.getElementById("formatViewTitle");
   elements.form = document.getElementById("qualityForm");
@@ -624,12 +657,12 @@ function cacheElements() {
   elements.fechaRegistro = document.getElementById("fechaRegistro");
   elements.loteProduccion = document.getElementById("loteProduccion");
   elements.horaInicio = document.getElementById("horaInicio");
+  elements.cuartoMaduracionLabel = document.getElementById("cuartoMaduracionLabel");
   elements.cuartoMaduracion = document.getElementById("cuartoMaduracion");
-  elements.iqfExtraFields = document.getElementById("iqfExtraFields");
-  elements.referenciaIqf = document.getElementById("referenciaIqf");
-  elements.arteIqf = document.getElementById("arteIqf");
-  elements.resistenciaIqf = document.getElementById("resistenciaIqf");
   elements.observaciones = document.getElementById("observaciones");
+  elements.novedadesExtraFields = document.getElementById("novedadesExtraFields");
+  elements.accionesCorrectivas = document.getElementById("accionesCorrectivas");
+  elements.responsableNovedad = document.getElementById("responsableNovedad");
   elements.measurementsContainer = document.getElementById("measurementsContainer");
   elements.recordsHead = document.getElementById("recordsHead");
   elements.recordsBody = document.getElementById("recordsBody");
@@ -662,6 +695,7 @@ function bindEvents() {
   elements.btnOpenIqf.addEventListener("click", () => showFormatView("iqf"));
   elements.btnOpenMaduracion.addEventListener("click", () => showFormatView("maduracion"));
   elements.btnOpenRecibo.addEventListener("click", () => showFormatView("recibo"));
+  elements.btnOpenNovedades.addEventListener("click", () => showFormatView("novedades"));
   elements.btnBackToMenu.addEventListener("click", showMainMenu);
   elements.form.addEventListener("submit", addRecord);
   elements.datePicker.addEventListener("change", () => {
@@ -688,7 +722,7 @@ function bindEvents() {
   });
 
   window.addEventListener("online", () => {
-    syncAllFormatRecords();
+    queueAllFormatSyncs();
   });
 }
 
@@ -733,8 +767,8 @@ async function handleSignedIn(user) {
 
   showApp();
   renderAuthHeader();
-  await syncAllFormatRecords({ renderActive: false });
   await initializeAppView();
+  queueAllFormatSyncs({ full: true, renderActive: false });
   if (isSuperUser()) await loadAdminUsers();
 }
 
@@ -970,12 +1004,12 @@ async function deleteUser(userId) {
   }
 
   await loadAdminUsers();
-  if (canSyncCloud()) await syncActiveFormatRecords();
+  queueFormatSync(state.activeFormatId, { full: true });
 }
 
 async function initializeAppView() {
+  updateFormatSpecificFields();
   renderMeasurementFields();
-  updateIqfExtraFields();
   renderTableHeader();
   setInitialDateTime();
   await loadRecords();
@@ -984,8 +1018,8 @@ async function initializeAppView() {
 async function showFormatView(formatId) {
   state.activeFormatId = formatId;
   elements.formatViewTitle.textContent = formatTitles[formatId];
+  updateFormatSpecificFields();
   renderMeasurementFields();
-  updateIqfExtraFields();
   renderTableHeader();
   await loadRecords();
   handleDateChange();
@@ -998,6 +1032,23 @@ async function showFormatView(formatId) {
   elements.porcionadoView.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function updateFormatSpecificFields() {
+  const isNovedades = state.activeFormatId === "novedades";
+  const options = isNovedades ? novedadesAreaOptions : cuartoMaduracionOptions;
+
+  elements.cuartoMaduracionLabel.textContent = isNovedades ? "Area" : "Cuarto de maduracion";
+  elements.cuartoMaduracion.innerHTML = [
+    '<option value="">Seleccionar</option>',
+    ...options.map((option) => `<option value="${option}">${option}</option>`),
+  ].join("");
+
+  elements.novedadesExtraFields.hidden = !isNovedades;
+  [elements.accionesCorrectivas, elements.responsableNovedad].forEach((input) => {
+    input.required = isNovedades;
+    if (!isNovedades) input.value = "";
+  });
+}
+
 function showMainMenu() {
   elements.porcionadoView.hidden = true;
   elements.mainMenu.hidden = false;
@@ -1006,7 +1057,7 @@ function showMainMenu() {
 
 function setInitialDateTime() {
   const today = new Date();
-  elements.datePicker.valueAsDate = today;
+  elements.datePicker.value = toDateInputValue(today);
   elements.horaInicio.value = today.toTimeString().slice(0, 5);
   handleDateChange();
 }
@@ -1032,6 +1083,12 @@ function renderMeasurementFields() {
 
   if (state.activeFormatId === "maduracion") {
     elements.measurementsContainer.innerHTML = renderMaduracionFields();
+    bindMeasurementInputEvents();
+    return;
+  }
+
+  if (state.activeFormatId === "novedades") {
+    elements.measurementsContainer.innerHTML = "";
     return;
   }
 
@@ -1041,15 +1098,6 @@ function renderMeasurementFields() {
 
   bindMeasurementInputEvents();
 
-}
-
-function updateIqfExtraFields() {
-  const isIqf = state.activeFormatId === "iqf";
-  elements.iqfExtraFields.hidden = !isIqf;
-  [elements.referenciaIqf, elements.arteIqf, elements.resistenciaIqf].forEach((input) => {
-    input.required = isIqf;
-    if (!isIqf) input.value = "";
-  });
 }
 
 function renderPrefreidoMeasurementGroup(group) {
@@ -1192,6 +1240,8 @@ function renderMaduracionFields() {
 }
 
 function renderMaduracionField(field) {
+  const rangeAttributes = getRangeAttributes(field);
+
   if (field.options) {
     return `
       <div class="measure-item">
@@ -1209,6 +1259,7 @@ function renderMaduracionField(field) {
         type="${field.inputType || "text"}"
         id="${field.id}"
         ${field.step ? `step="${field.step}"` : ""}
+        ${rangeAttributes}
         required
       >
     </div>
@@ -1244,13 +1295,31 @@ function renderSelectWithOther(id, options, attributes = "", config = {}) {
 }
 
 function renderNumericMeasurementGroup(group) {
-  const fields = Array.from({ length: 5 }, (_, index) => {
+  const groupCount = getGroupCount(group);
+  const fields = Array.from({ length: groupCount }, (_, index) => {
     const number = index + 1;
     const id = `${group.id}${number}`;
+    const suffix = groupCount === 1 ? "" : ` ${number}`;
+    const fieldLabel = `${group.label}${suffix} (${group.unit})`;
+
+    if (group.inputType) {
+      return `
+        <div class="measure-item">
+          <label for="${id}">${fieldLabel}</label>
+          <input
+            class="form-control measure-input"
+            type="${group.inputType}"
+            id="${id}"
+            step="${group.step || 1}"
+            required
+          >
+        </div>
+      `;
+    }
 
     return `
       <div class="measure-item">
-        <label for="${id}">${group.label} ${number} (${group.unit})</label>
+        <label for="${id}">${fieldLabel}</label>
         ${renderSelectWithOther(id, buildRangeOptions(group.min, group.max, group.step), `data-range-min="${group.min}" data-range-max="${group.max}"`, group)}
       </div>
     `;
@@ -1303,8 +1372,8 @@ function getTableColumns() {
       "Cuarto de maduracion",
       "Seccion",
       "Posicion",
-      "Temperatura cuarto de maduracion (&deg;C)",
-      "Humedad relativa cuarto de maduracion (%Hr)",
+      "Temperatura cuarto de maduracion (24&deg;C-27&deg;C)",
+      "Humedad relativa cuarto de maduracion (80%Hr-90%Hr)",
       "Brix platano",
       "Peso del platano (g)",
       "Sabor",
@@ -1333,18 +1402,34 @@ function getTableColumns() {
       "Lote",
       "Semana cosecha",
       "Peso verde",
-      "Peso pulpa",
       "Longitud",
       "Diametro",
       "Plaga",
       "Brix",
       "Olor",
-      "Sabor",
       "Color",
       "Estado",
       "Realizado",
       "Verificado",
       "Obs.",
+      "Accion",
+    ];
+  }
+
+  if (state.activeFormatId === "novedades") {
+    return [
+      "#",
+      "Fecha",
+      "Semana/Año",
+      "Hora",
+      "Lote",
+      "Area",
+      "Estado",
+      "Realizado",
+      "Verificado",
+      "Observaciones",
+      "Acciones correctivas",
+      "Responsable",
       "Accion",
     ];
   }
@@ -1365,9 +1450,6 @@ function getTableColumns() {
       "Estado",
       "Realizado",
       "Verificado",
-      "Referencia",
-      "Arte",
-      "Resistencia",
       "Obs.",
       "AcciÃ³n",
     ];
@@ -1654,6 +1736,8 @@ async function addRecord(event) {
     arte: state.activeFormatId === "iqf" ? getValue("arteIqf") : "",
     resistencia: state.activeFormatId === "iqf" ? getValue("resistenciaIqf") : "",
     observaciones: getValue("observaciones"),
+    accionesCorrectivas: state.activeFormatId === "novedades" ? getValue("accionesCorrectivas") : "",
+    responsableNovedad: state.activeFormatId === "novedades" ? getValue("responsableNovedad") : "",
     medidas: collectMeasurements(),
     briz: state.activeFormatId === "porcionado" ? collectBriz() : [],
   };
@@ -1692,6 +1776,10 @@ function collectMeasurements() {
     }, {});
   }
 
+  if (state.activeFormatId === "novedades") {
+    return {};
+  }
+
   if (state.activeFormatId === "iqf") {
     return iqfGroups.reduce((result, group) => {
       result[group.id] = Array.from({ length: getGroupCount(group) }, (_, index) => getValue(`${group.id}${index + 1}`));
@@ -1707,7 +1795,7 @@ function collectMeasurements() {
   }
 
   return measurementGroups.reduce((result, group) => {
-    result[group.id] = Array.from({ length: 5 }, (_, index) => getValue(`${group.id}${index + 1}`));
+    result[group.id] = Array.from({ length: getGroupCount(group) }, (_, index) => getValue(`${group.id}${index + 1}`));
     return result;
   }, {});
 }
@@ -1718,6 +1806,20 @@ function collectBriz() {
 
 function getRecordStatus(record) {
   if (state.activeFormatId === "maduracion") {
+    const hasOutOfRange = maduracionGroups.some((field) => {
+      if (field.min === undefined && field.max === undefined) return false;
+
+      const number = parseMeasurementNumber(record.medidas[field.id]);
+      const underMin = field.min !== undefined && number < field.min;
+      const overMax = field.max !== undefined && number > field.max;
+
+      return Number.isNaN(number) || underMin || overMax;
+    });
+
+    return hasOutOfRange ? "Revisar" : "OK";
+  }
+
+  if (state.activeFormatId === "novedades") {
     return "OK";
   }
 
@@ -1745,12 +1847,18 @@ function getRecordStatus(record) {
         return Number.isNaN(number) || underMin || overMax;
       });
     });
-    const hasNonConforming = ["selladoVertical", "selladoHorizontal", "materialExtranoIqf"].some((groupId) => {
+    const hasNonConforming = [
+      "verificacionLoteado",
+      "selladoVertical",
+      "selladoHorizontal",
+      "materialExtranoIqf",
+      "arteIqf",
+      "resistenciaIqf",
+    ].some((groupId) => {
       return record.medidas[groupId].some((value) => ["No conforme", "Presente"].includes(value));
     });
-    const hasNonConformingExtras = [record.arte, record.resistencia].includes("No conforme");
 
-    return hasOutOfRange || hasNonConforming || hasNonConformingExtras ? "Revisar" : "OK";
+    return hasOutOfRange || hasNonConforming ? "Revisar" : "OK";
   }
 
   if (state.activeFormatId === "prefreido") {
@@ -1772,9 +1880,14 @@ function getRecordStatus(record) {
   }
 
   const hasOutOfRange = measurementGroups.some((group) => {
+    if (group.min === undefined && group.max === undefined) return false;
+
     return record.medidas[group.id].some((value) => {
       const number = parseMeasurementNumber(value);
-      return Number.isNaN(number) || number < group.min || number > group.max;
+      const underMin = group.min !== undefined && number < group.min;
+      const overMax = group.max !== undefined && number > group.max;
+
+      return Number.isNaN(number) || underMin || overMax;
     });
   });
 
@@ -1795,6 +1908,7 @@ function resetFormAfterSave() {
 
 function clearFormInputs() {
   const selectedValues = {
+    datePicker: elements.datePicker.value,
     fecha: elements.fechaRegistro.value,
     lote: elements.loteProduccion.value,
     hora: elements.horaInicio.value,
@@ -1802,6 +1916,7 @@ function clearFormInputs() {
   const generalValues = shouldRememberGeneralInfo() ? getGeneralFormValues() : {};
 
   elements.form.reset();
+  elements.datePicker.value = selectedValues.datePicker;
   elements.fechaRegistro.value = selectedValues.fecha;
   elements.loteProduccion.value = selectedValues.lote;
   elements.horaInicio.value = selectedValues.hora;
@@ -1891,7 +2006,7 @@ async function loadRecords() {
   state.records = loadLocalRecords(state.activeFormatId).filter((record) => !record._deleted);
   renderRecords();
 
-  if (canSyncCloud()) await syncActiveFormatRecords();
+  queueFormatSync(state.activeFormatId, { full: true });
 }
 
 async function loadCloudRecords(formatId = state.activeFormatId) {
@@ -1934,6 +2049,14 @@ function recordFromCloudRow(row, formatId = state.activeFormatId) {
 }
 
 function normalizeRecord(record, formatId = state.activeFormatId) {
+  const medidas = normalizeMeasurements(record.medidas, formatId);
+
+  if (formatId === "iqf") {
+    if (!medidas.referenciaIqf?.[0] && record.referencia) medidas.referenciaIqf[0] = record.referencia;
+    if (!medidas.arteIqf?.[0] && record.arte) medidas.arteIqf[0] = record.arte;
+    if (!medidas.resistenciaIqf?.[0] && record.resistencia) medidas.resistenciaIqf[0] = record.resistencia;
+  }
+
   return {
     id: record.id || crypto.randomUUID?.() || String(Date.now()),
     _cloudId: record._cloudId,
@@ -1950,7 +2073,9 @@ function normalizeRecord(record, formatId = state.activeFormatId) {
     arte: record.arte || "",
     resistencia: record.resistencia || "",
     observaciones: record.observaciones || "",
-    medidas: normalizeMeasurements(record.medidas, formatId),
+    accionesCorrectivas: record.accionesCorrectivas || "",
+    responsableNovedad: record.responsableNovedad || "",
+    medidas,
     briz: formatId === "porcionado" ? normalizeFixedArray(record.briz) : [],
     estado: record.estado || "OK",
     _syncStatus: record._syncStatus || "",
@@ -1973,6 +2098,10 @@ function normalizeMeasurements(measurements = {}, formatId = state.activeFormatI
     }, {});
   }
 
+  if (formatId === "novedades") {
+    return {};
+  }
+
   if (formatId === "iqf") {
     return iqfGroups.reduce((result, group) => {
       result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
@@ -1988,7 +2117,7 @@ function normalizeMeasurements(measurements = {}, formatId = state.activeFormatI
   }
 
   return measurementGroups.reduce((result, group) => {
-    result[group.id] = normalizeFixedArray(measurements[group.id]);
+    result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
     return result;
   }, {});
 }
@@ -2006,6 +2135,55 @@ async function syncAllFormatRecords({ renderActive = true } = {}) {
 
   for (const formatId of Object.keys(FORMAT_STORAGE_KEYS)) {
     await syncFormatRecords(formatId, { renderActive: renderActive && formatId === state.activeFormatId });
+  }
+}
+
+function queueAllFormatSyncs({ full = false, renderActive = true } = {}) {
+  Object.keys(FORMAT_STORAGE_KEYS).forEach((formatId) => {
+    queueFormatSync(formatId, { full, renderActive: renderActive && formatId === state.activeFormatId });
+  });
+}
+
+function queueFormatSync(formatId = state.activeFormatId, { full = false, renderActive = true } = {}) {
+  if (!canUseCloud()) return;
+
+  const currentQueued = backgroundSyncState.queued.get(formatId);
+  const nextOptions = {
+    full: Boolean(full || currentQueued?.full),
+    renderActive: Boolean(renderActive || currentQueued?.renderActive),
+  };
+  backgroundSyncState.queued.set(formatId, nextOptions);
+
+  if (backgroundSyncState.active.has(formatId)) return;
+
+  window.setTimeout(() => runQueuedFormatSync(formatId), 0);
+}
+
+async function runQueuedFormatSync(formatId) {
+  if (backgroundSyncState.active.has(formatId)) return;
+  if (!canSyncCloud()) return;
+
+  const options = backgroundSyncState.queued.get(formatId);
+  if (!options) return;
+
+  backgroundSyncState.queued.delete(formatId);
+  backgroundSyncState.active.add(formatId);
+
+  try {
+    if (options.full) {
+      await syncFormatRecords(formatId, { renderActive: options.renderActive });
+    } else {
+      await syncPendingFormatRecords(formatId, { renderActive: options.renderActive });
+    }
+  } catch (error) {
+    state.cloudSyncError = error;
+    console.error("No se pudo sincronizar en segundo plano", error);
+  } finally {
+    backgroundSyncState.active.delete(formatId);
+  }
+
+  if (backgroundSyncState.queued.has(formatId)) {
+    window.setTimeout(() => runQueuedFormatSync(formatId), 0);
   }
 }
 
@@ -2034,12 +2212,10 @@ async function syncFormatRecords(formatId, { renderActive = true } = {}) {
 
   const cloudRecords = await fetchCloudRecords(formatId);
   if (!cloudRecords) {
+    saveRecords(formatId, retainedLocalRecords);
     if (formatId === state.activeFormatId) {
       state.records = retainedLocalRecords.filter((record) => !record._deleted);
-      saveRecords(formatId, state.records);
       if (renderActive) renderRecords();
-    } else {
-      saveRecords(formatId, retainedLocalRecords.filter((record) => !record._deleted));
     }
     return;
   }
@@ -2047,14 +2223,54 @@ async function syncFormatRecords(formatId, { renderActive = true } = {}) {
   const merged = new Map();
   cloudRecords.forEach((record) => merged.set(record.id, record));
   retainedLocalRecords.forEach((record) => {
-    if (!record._deleted && !merged.has(record.id)) merged.set(record.id, record);
+    if (record._deleted) {
+      merged.delete(record.id);
+    } else if (!merged.has(record.id)) {
+      merged.set(record.id, record);
+    }
   });
 
   const syncedRecords = Array.from(merged.values());
-  saveRecords(formatId, syncedRecords);
+  const pendingDeleteRecords = retainedLocalRecords.filter((record) => record._deleted);
+  saveRecords(formatId, syncedRecords.concat(pendingDeleteRecords));
 
   if (formatId === state.activeFormatId) {
     state.records = syncedRecords;
+    if (renderActive) renderRecords();
+  }
+}
+
+async function syncPendingFormatRecords(formatId, { renderActive = true } = {}) {
+  if (!canSyncCloud()) return;
+
+  const localRecords = loadLocalRecords(formatId);
+  const syncedRecords = [];
+
+  for (const record of localRecords) {
+    if (record._deleted) {
+      if (record._cloudId) {
+        const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
+        if (error) {
+          state.cloudSyncError = error;
+          syncedRecords.push(record);
+        }
+      }
+      continue;
+    }
+
+    if (record._syncStatus !== "synced" || !record._cloudId) {
+      const syncedRecord = await uploadRecordToCloud(record, formatId);
+      syncedRecords.push(syncedRecord || record);
+    } else {
+      syncedRecords.push(record);
+    }
+  }
+
+  const visibleRecords = syncedRecords.filter((record) => !record._deleted);
+  saveRecords(formatId, syncedRecords);
+
+  if (formatId === state.activeFormatId) {
+    state.records = visibleRecords;
     if (renderActive) renderRecords();
   }
 }
@@ -2136,16 +2352,10 @@ async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
 }
 
 async function saveRecord(record) {
-  record._syncStatus = canSyncCloud() ? "pending" : "pending";
+  record._syncStatus = "pending";
   state.records.push(record);
   saveRecords();
-  if (canSyncCloud()) {
-    await syncActiveFormatRecords();
-    const syncedRecord = state.records.find((item) => item.id === record.id);
-    if (!syncedRecord?._cloudId) {
-      window.alert(`El registro quedo guardado en este equipo, pero no se pudo sincronizar con la nube.\n\nDetalle: ${getCloudErrorMessage()}`);
-    }
-  }
+  queueFormatSync(state.activeFormatId);
   return true;
 }
 
@@ -2171,22 +2381,15 @@ function getStorageKey(formatId = state.activeFormatId) {
 
 async function deleteRecord(index) {
   const record = state.records[index];
-  if (canSyncCloud() && record?._cloudId) {
-    const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
-    if (error) {
-      window.alert("No se pudo eliminar el registro en la nube.");
-      return;
-    }
-  }
 
-  if (!canSyncCloud() && record?._cloudId) {
-    record._deleted = true;
-    record._syncStatus = "pending-delete";
-    saveRecords();
-    state.records = state.records.filter((item) => !item._deleted);
-  } else {
+  if (!record?._cloudId) {
     state.records.splice(index, 1);
     saveRecords();
+  } else {
+    const deleteMarker = { ...record, _deleted: true, _syncStatus: "pending-delete" };
+    state.records.splice(index, 1);
+    saveRecords(state.activeFormatId, state.records.concat(deleteMarker));
+    queueFormatSync(state.activeFormatId);
   }
 
   renderRecords();
@@ -2196,21 +2399,6 @@ async function clearRecords() {
   if (!state.records.length) return;
   if (!window.confirm("¿Deseas borrar todos los registros agregados?")) return;
 
-  if (canSyncCloud()) {
-    let query = supabaseClient.from("quality_records").delete().eq("format_id", state.activeFormatId);
-    if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
-
-    const { error } = await query;
-    if (error) {
-      window.alert("No se pudieron borrar los registros en la nube.");
-      return;
-    }
-    state.records = [];
-    saveRecords();
-    renderRecords();
-    return;
-  }
-
   const deleteMarkers = state.records
     .filter((record) => record._cloudId)
     .map((record) => ({ ...record, _deleted: true, _syncStatus: "pending-delete" }));
@@ -2218,6 +2406,7 @@ async function clearRecords() {
   saveRecords();
   state.records = [];
   renderRecords();
+  queueFormatSync(state.activeFormatId);
 }
 
 function canUseCloud() {
@@ -2299,6 +2488,30 @@ function renderRecordRow(record, index) {
     `;
   }
 
+  if (state.activeFormatId === "novedades") {
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(record.fecha)}</td>
+        <td>${escapeHtml(record.fechaJuliana)}</td>
+        <td>${escapeHtml(record.hora)}</td>
+        <td>${escapeHtml(record.lote)}</td>
+        <td>${escapeHtml(record.cuarto)}</td>
+        <td><span class="status-badge ${statusClass}">${record.estado}</span></td>
+        <td>${escapeHtml(record.realizadoPor)}</td>
+        <td>${escapeHtml(record.verificadoPor)}</td>
+        <td>${escapeHtml(record.observaciones || "-")}</td>
+        <td>${escapeHtml(record.accionesCorrectivas || "-")}</td>
+        <td>${escapeHtml(record.responsableNovedad || "-")}</td>
+        <td>
+          <button class="btn-delete" type="button" data-delete-index="${index}">
+            <i class="bi bi-trash" aria-hidden="true"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }
+
   return `
     <tr>
       <td>${index + 1}</td>
@@ -2311,7 +2524,6 @@ function renderRecordRow(record, index) {
       <td><span class="status-badge ${statusClass}">${record.estado}</span></td>
       <td>${escapeHtml(record.realizadoPor)}</td>
       <td>${escapeHtml(record.verificadoPor)}</td>
-      ${renderIqfExtraRecordCells(record)}
       <td>${escapeHtml(record.observaciones || "-")}</td>
       <td>
         <button class="btn-delete" type="button" data-delete-index="${index}">
@@ -2319,16 +2531,6 @@ function renderRecordRow(record, index) {
         </button>
       </td>
     </tr>
-  `;
-}
-
-function renderIqfExtraRecordCells(record) {
-  if (state.activeFormatId !== "iqf") return "";
-
-  return `
-    <td>${escapeHtml(record.referencia || "-")}</td>
-    <td>${escapeHtml(record.arte || "-")}</td>
-    <td>${escapeHtml(record.resistencia || "-")}</td>
   `;
 }
 
@@ -2359,15 +2561,17 @@ function getRecordMeasureValues(record) {
       record.lote,
       record.medidas.semanaCosecha,
       record.medidas.pesoVerde,
-      record.medidas.pesoPulpa,
       record.medidas.longitudRecibo,
       record.medidas.diametro,
       record.medidas.plaga,
       record.medidas.brixRecibo,
       record.medidas.olorRecibo,
-      record.medidas.saborRecibo,
       record.medidas.colorRecibo,
     ];
+  }
+
+  if (state.activeFormatId === "novedades") {
+    return [];
   }
 
   if (state.activeFormatId === "iqf") {
@@ -2379,10 +2583,7 @@ function getRecordMeasureValues(record) {
   }
 
   return [
-    ...record.medidas.peso,
-    ...record.medidas.longitud,
-    ...record.medidas.amplitud,
-    ...record.medidas.grosor,
+    ...measurementGroups.flatMap((group) => record.medidas[group.id] || normalizeFixedArray([], getGroupCount(group))),
     ...record.briz,
   ];
 }
@@ -2428,8 +2629,8 @@ function getExportRows() {
       "Cuarto de maduracion": record.cuarto,
       Seccion: record.medidas.seccionMaduracion,
       Posicion: record.medidas.posicionMaduracion,
-      "Temperatura cuarto de maduracion (C)": record.medidas.tempCuartoMaduracion,
-      "Humedad relativa cuarto de maduracion (%Hr)": record.medidas.humedadCuartoMaduracion,
+      "Temperatura cuarto de maduracion (24C-27C)": record.medidas.tempCuartoMaduracion,
+      "Humedad relativa cuarto de maduracion (80%Hr-90%Hr)": record.medidas.humedadCuartoMaduracion,
       "Brix platano": record.medidas.brixPlatanoMaduracion,
       "Peso del platano (g)": record.medidas.pesoPlatanoMaduracion,
       Sabor: record.medidas.saborMaduracion,
@@ -2456,13 +2657,11 @@ function getExportRows() {
       Lote: record.lote,
       "Semana Cosecha": record.medidas.semanaCosecha,
       "Peso Verde (g)": record.medidas.pesoVerde,
-      "Peso Pulpa (g)": record.medidas.pesoPulpa,
       "Longitud (cm)": record.medidas.longitudRecibo,
       "Diametro (cm)": record.medidas.diametro,
       "Plaga (A/P)": record.medidas.plaga,
       Brix: record.medidas.brixRecibo,
       Olor: record.medidas.olorRecibo,
-      Sabor: record.medidas.saborRecibo,
       Color: record.medidas.colorRecibo,
       Estado: record.estado,
       "Realizado por": record.realizadoPor,
@@ -2471,11 +2670,28 @@ function getExportRows() {
     }));
   }
 
+  if (state.activeFormatId === "novedades") {
+    return state.records.map((record, index) => ({
+      "#": index + 1,
+      Fecha: record.fecha,
+      "Semana/Año": record.fechaJuliana,
+      Hora: record.hora,
+      Lote: record.lote,
+      Area: record.cuarto,
+      Estado: record.estado,
+      "Realizado por": record.realizadoPor,
+      "Verificado por": record.verificadoPor,
+      Observaciones: record.observaciones,
+      "Acciones correctivas": record.accionesCorrectivas,
+      Responsable: record.responsableNovedad,
+    }));
+  }
+
   if (state.activeFormatId === "iqf") {
     return state.records.map((record, index) => ({
       "#": index + 1,
       Fecha: record.fecha,
-      "Semana/AÃ±o": record.fechaJuliana,
+      "Semana/Año": record.fechaJuliana,
       Hora: record.hora,
       "Cuarto de MaduraciÃ³n": record.cuarto,
       "Lote de ProducciÃ³n": record.lote,
@@ -2486,9 +2702,6 @@ function getExportRows() {
       Estado: record.estado,
       "Realizado por": record.realizadoPor,
       "Verificado por": record.verificadoPor,
-      Referencia: record.referencia,
-      Arte: record.arte,
-      Resistencia: record.resistencia,
       Observaciones: record.observaciones,
     }));
   }
@@ -2519,10 +2732,10 @@ function getExportRows() {
     Hora: record.hora,
     "Cuarto de Maduración": record.cuarto,
     "Lote de Producción": record.lote,
-    ...spreadArray("Peso", record.medidas.peso),
-    ...spreadArray("Longitud", record.medidas.longitud),
-    ...spreadArray("Amplitud", record.medidas.amplitud),
-    ...spreadArray("Grosor", record.medidas.grosor),
+    ...measurementGroups.reduce((result, group) => ({
+      ...result,
+      ...spreadArray(group.label, record.medidas[group.id] || normalizeFixedArray([], getGroupCount(group))),
+    }), {}),
     ...spreadArray("Brix", record.briz),
     Estado: record.estado,
     "Realizado por": record.realizadoPor,
