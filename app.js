@@ -769,7 +769,7 @@ async function handleSignedIn(user) {
   showApp();
   renderAuthHeader();
   await initializeAppView();
-  queueAllFormatSyncs({ renderActive: false, delay: 1500 });
+  queueAllFormatSyncs({ full: true, renderActive: false, delay: 2500 });
   if (isSuperUser()) await loadAdminUsers();
 }
 
@@ -2007,7 +2007,7 @@ function loadRecords() {
   state.records = loadLocalRecords(state.activeFormatId).filter((record) => !record._deleted);
   renderRecords();
 
-  queueFormatSync(state.activeFormatId, { delay: 1000 });
+  queueFormatSync(state.activeFormatId, { full: true, delay: 1200 });
 }
 
 async function loadCloudRecords(formatId = state.activeFormatId) {
