@@ -227,6 +227,16 @@ const prefreidoGroups = [
 
 const iqfGroups = [
   {
+    id: "presentacionIqf",
+    title: "Presentacion",
+    icon: "bi-box2-heart",
+    label: "Presentacion",
+    inputType: "text",
+    count: 1,
+    columnPrefix: "PRE",
+    exportLabel: "Presentacion",
+  },
+  {
     id: "tempIqf",
     title: "Temperatura del IQF (-10&deg;C o menor)",
     icon: "bi-snow2",
@@ -329,13 +339,13 @@ const iqfGroups = [
   },
   {
     id: "referenciaIqf",
-    title: "Referencia",
+    title: "Referencia de empaque",
     icon: "bi-card-text",
-    label: "Referencia",
+    label: "Referencia de empaque",
     inputType: "text",
     count: 1,
     columnPrefix: "REF",
-    exportLabel: "Referencia",
+    exportLabel: "Referencia de empaque",
   },
   {
     id: "arteIqf",
@@ -1696,6 +1706,34 @@ function getMonthNameFromDisplay(displayDate) {
   return match ? match[1] : "";
 }
 
+function getDateInputFromRecord(record) {
+  if (record.fechaIso) return record.fechaIso;
+
+  const match = String(record.fecha || "").match(/^(\d{1,2}) de ([a-zA-ZáéíóúñÁÉÍÓÚÑ]+) de (\d{4})$/i);
+  if (!match) return "";
+
+  const monthNames = {
+    enero: 0,
+    febrero: 1,
+    marzo: 2,
+    abril: 3,
+    mayo: 4,
+    junio: 5,
+    julio: 6,
+    agosto: 7,
+    septiembre: 8,
+    setiembre: 8,
+    octubre: 9,
+    noviembre: 10,
+    diciembre: 11,
+  };
+  const monthKey = match[2].normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const monthIndex = monthNames[monthKey];
+  if (monthIndex === undefined) return "";
+
+  return toDateInputValue(new Date(Number(match[3]), monthIndex, Number(match[1])));
+}
+
 function checkRange(input) {
   const value = parseMeasurementNumber(input.value);
   const hasMin = input.dataset.rangeMin !== undefined;
@@ -1725,9 +1763,11 @@ async function addRecord(event) {
   if (!elements.form.reportValidity()) return;
 
   const record = {
+    fechaIso: state.selectedDate,
     fecha: getValue("fechaRegistro"),
     mes: getMonthName(state.selectedDate),
     fechaJuliana: getWeekYear(state.selectedDate),
+    loteMateriaPrima: state.activeFormatId === "iqf" ? getDayOfYearCode(state.selectedDate) : "",
     hora: getValue("horaInicio"),
     cuarto: getValue("cuartoMaduracion"),
     lote: getValue("loteProduccion"),
@@ -2062,9 +2102,11 @@ function normalizeRecord(record, formatId = state.activeFormatId) {
     id: record.id || crypto.randomUUID?.() || String(Date.now()),
     _cloudId: record._cloudId,
     userEmail: record.userEmail || "",
+    fechaIso: record.fechaIso || "",
     fecha: record.fecha || "",
     mes: record.mes || getMonthNameFromDisplay(record.fecha),
     fechaJuliana: record.fechaJuliana || "",
+    loteMateriaPrima: record.loteMateriaPrima || "",
     hora: record.hora || "",
     cuarto: record.cuarto || "",
     lote: record.lote || "",
@@ -2694,6 +2736,10 @@ function getExportRows() {
   }
 
   if (state.activeFormatId === "iqf") {
+    return getIqfExportRows();
+  }
+
+  if (false) {
     return state.records.map((record, index) => ({
       "#": index + 1,
       Fecha: record.fecha,
@@ -2800,6 +2846,62 @@ function downloadBlob(blob, fileName) {
 function toCsvCell(value) {
   const text = String(value ?? "");
   return `"${text.replaceAll('"', '""')}"`;
+}
+
+function getIqfExportRows() {
+  return state.records.map((record, index) => {
+    const recordDate = getDateInputFromRecord(record);
+
+    return {
+      "#": index + 1,
+      Fecha: record.fecha,
+      "Semana año": record.fechaJuliana,
+      Hora: record.hora,
+      "Cuarto de maduración": record.cuarto,
+      "Lote de materia prima": record.loteMateriaPrima || getDayOfYearCode(recordDate),
+      "Lote de producción": record.lote || (record.fechaJuliana ? `W${record.fechaJuliana.replace("-", "")}` : ""),
+      Presentación: getIqfMeasureValue(record, "presentacionIqf"),
+      "Referencia de empaque": getIqfMeasureValue(record, "referenciaIqf"),
+      "Temperatura de IQF": getIqfMeasureValue(record, "tempIqf"),
+      "Temperatura entrada IQF tajada 1": getIqfMeasureValue(record, "tempEntradaIqf", 0),
+      "Temperatura entrada IQF tajada 2": getIqfMeasureValue(record, "tempEntradaIqf", 1),
+      "Temperatura entrada IQF tajada 3": getIqfMeasureValue(record, "tempEntradaIqf", 2),
+      "Temperatura entrada IQF tajada 4": getIqfMeasureValue(record, "tempEntradaIqf", 3),
+      "Temperatura entrada IQF tajada 5": getIqfMeasureValue(record, "tempEntradaIqf", 4),
+      "Temperatura salida de IQF de la tajada 1": getIqfMeasureValue(record, "tempSalidaIqf", 0),
+      "Temperatura salida de IQF de la tajada 2": getIqfMeasureValue(record, "tempSalidaIqf", 1),
+      "Temperatura salida de IQF de la tajada 3": getIqfMeasureValue(record, "tempSalidaIqf", 2),
+      "Temperatura salida de IQF de la tajada 4": getIqfMeasureValue(record, "tempSalidaIqf", 3),
+      "Temperatura salida de IQF de la tajada 5": getIqfMeasureValue(record, "tempSalidaIqf", 4),
+      "Materiales extraños": getIqfMeasureValue(record, "materialExtranoIqf"),
+      "Brix salida IQF 1": getIqfMeasureValue(record, "brixSalidaIqf", 0),
+      "Brix salida IQF 2": getIqfMeasureValue(record, "brixSalidaIqf", 1),
+      "Brix salida IQF 3": getIqfMeasureValue(record, "brixSalidaIqf", 2),
+      "Brix salida IQF 4": getIqfMeasureValue(record, "brixSalidaIqf", 3),
+      "Brix salida IQF 5": getIqfMeasureValue(record, "brixSalidaIqf", 4),
+      "Peso neto 1": getIqfMeasureValue(record, "productoTerminado", 0),
+      "Peso neto 2": getIqfMeasureValue(record, "productoTerminado", 1),
+      "Peso neto 3": getIqfMeasureValue(record, "productoTerminado", 2),
+      "Peso neto 4": getIqfMeasureValue(record, "productoTerminado", 3),
+      "Peso neto 5": getIqfMeasureValue(record, "productoTerminado", 4),
+      Loteado: getIqfMeasureValue(record, "verificacionLoteado"),
+      "Sello vertical": getIqfMeasureValue(record, "selladoVertical"),
+      "Sello horizontal": getIqfMeasureValue(record, "selladoHorizontal"),
+      "Arte y/o etiqueta": getIqfMeasureValue(record, "arteIqf"),
+      Resistencia: getIqfMeasureValue(record, "resistenciaIqf"),
+      "Realizado por": record.realizadoPor,
+      "Verificado por": record.verificadoPor,
+      Observaciones: record.observaciones,
+    };
+  });
+}
+
+function getIqfMeasureValue(record, groupId, index = 0) {
+  if (groupId === "referenciaIqf" && index === 0 && record.referencia) return record.referencia;
+  if (groupId === "arteIqf" && index === 0 && record.arte) return record.arte;
+  if (groupId === "resistenciaIqf" && index === 0 && record.resistencia) return record.resistencia;
+
+  return record.medidas?.[groupId]?.[index] || "";
 }
 
 function spreadArray(prefix, values) {
