@@ -83,6 +83,9 @@ const reciboFirstRecordAutofillTitles = [
 const maduracionFirstRecordAutofillIds = [
   "tempCuartoMaduracion",
   "humedadCuartoMaduracion",
+  "saborMaduracion",
+  "olorMaduracion",
+  "colorMaduracion",
 ];
 const cuartoMaduracionOptions = ["1", "2", "3", "4", "5", "6"];
 const novedadesAreaOptions = ["Pelado y porcionado", "Prefrito, picking e IQF", "IQF y empaque"];
