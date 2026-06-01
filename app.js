@@ -352,7 +352,7 @@ const iqfGroups = [
     title: "Verificacion de detector de metales",
     icon: "bi-magnet-fill",
     label: "Detector de metales",
-    options: ["Conforme", "No conforme"],
+    options: ["Ausencia", "Presencia"],
     count: 1,
     columnPrefix: "DM",
     exportLabel: "Detector de metales",
@@ -1907,7 +1907,7 @@ function getRecordStatus(record) {
       "arteIqf",
       "resistenciaIqf",
     ].some((groupId) => {
-      return record.medidas[groupId].some((value) => ["No conforme", "Presente"].includes(value));
+      return record.medidas[groupId].some((value) => ["No conforme", "Presente", "Presencia"].includes(value));
     });
 
     return hasOutOfRange || hasNonConforming ? "Revisar" : "OK";
