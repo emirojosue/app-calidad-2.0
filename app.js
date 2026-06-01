@@ -80,6 +80,11 @@ const reciboFirstRecordAutofillTitles = [
   "Condiciones del vehiculo y conductor",
   "Proveedor y cosecha",
 ];
+const reciboFirstRecordAutofillIds = [
+  "plaga",
+  "olorRecibo",
+  "colorRecibo",
+];
 const maduracionFirstRecordAutofillIds = [
   "tempCuartoMaduracion",
   "humedadCuartoMaduracion",
@@ -2040,7 +2045,9 @@ function applyReciboFirstRecordInfo() {
 }
 
 function getReciboFirstRecordAutofillFields() {
-  return reciboGroups.filter((field) => reciboFirstRecordAutofillTitles.includes(field.title));
+  return reciboGroups.filter((field) => {
+    return reciboFirstRecordAutofillTitles.includes(field.title) || reciboFirstRecordAutofillIds.includes(field.id);
+  });
 }
 
 function applyMaduracionFirstRecordInfo() {
