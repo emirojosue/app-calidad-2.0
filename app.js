@@ -11,7 +11,10 @@ const FORMAT_STORAGE_KEYS = {
   maduracion: `${STORAGE_KEY}:maduracion`,
   recibo: `${STORAGE_KEY}:recibo`,
   novedades: `${STORAGE_KEY}:novedades`,
+  aseo: `${STORAGE_KEY}:aseo`,
 };
+const ASEO_GROUPS_STORAGE_KEY = `${STORAGE_KEY}:aseo:groups`;
+const ASEO_DRAFTS_STORAGE_KEY = `${STORAGE_KEY}:aseo:drafts`;
 
 const measurementGroups = [
   {
@@ -94,6 +97,15 @@ const maduracionFirstRecordAutofillIds = [
 ];
 const cuartoMaduracionOptions = ["1", "2", "3", "4", "5", "6"];
 const novedadesAreaOptions = ["Pelado y porcionado", "Prefrito, picking e IQF", "IQF y empaque"];
+const aseoAreaOptions = ["Pelado y Porcionado", "Picking", "IQF", "Empaque"];
+const aseoTargetMinutes = {
+  "Pelado y Porcionado": 90,
+  Picking: 60,
+  IQF: 150,
+  Empaque: 90,
+};
+const aseoComplianceOptions = ["Cumple", "Cumple parcialmente", "No cumple"];
+const aseoDelayReasons = ["Falta de personal", "Dano de herramienta", "Exceso de suciedad", "Apoyo a otra area", "Otro"];
 const brixSuggestions = buildRangeOptions(brixRange.min, brixRange.max, brixRange.step);
 const tableColumns = [
   "#",
@@ -609,6 +621,7 @@ const formatTitles = {
   maduracion: "Formato de seguimiento de maduracion",
   recibo: "Formato de seguimiento de recibo",
   novedades: "Formato de novedades",
+  aseo: "Evaluacion de Aseo",
 };
 
 const state = {
@@ -621,6 +634,7 @@ const state = {
   authUser: null,
   authProfile: null,
   cloudSyncError: null,
+  aseoDraftArea: "",
 };
 
 const elements = {};
@@ -678,6 +692,7 @@ function cacheElements() {
   elements.btnOpenMaduracion = document.getElementById("btnOpenMaduracion");
   elements.btnOpenRecibo = document.getElementById("btnOpenRecibo");
   elements.btnOpenNovedades = document.getElementById("btnOpenNovedades");
+  elements.btnOpenAseo = document.getElementById("btnOpenAseo");
   elements.btnBackToMenu = document.getElementById("btnBackToMenu");
   elements.formatViewTitle = document.getElementById("formatViewTitle");
   elements.form = document.getElementById("qualityForm");
@@ -725,6 +740,7 @@ function bindEvents() {
   elements.btnOpenMaduracion.addEventListener("click", () => showFormatView("maduracion"));
   elements.btnOpenRecibo.addEventListener("click", () => showFormatView("recibo"));
   elements.btnOpenNovedades.addEventListener("click", () => showFormatView("novedades"));
+  elements.btnOpenAseo.addEventListener("click", () => showFormatView("aseo"));
   elements.btnBackToMenu.addEventListener("click", showMainMenu);
   elements.form.addEventListener("submit", addRecord);
   elements.datePicker.addEventListener("change", () => {
@@ -733,9 +749,29 @@ function bindEvents() {
     applyReciboFirstRecordInfo();
     applyMaduracionFirstRecordInfo();
   });
+  elements.cuartoMaduracion.addEventListener("change", () => {
+    if (state.activeFormatId === "aseo") {
+      handleAseoAreaChange();
+      return;
+    }
+  });
+  elements.form.addEventListener("input", (event) => {
+    if (state.activeFormatId === "aseo") {
+      handleAseoFormDraftEvent(event);
+    }
+  });
+  elements.form.addEventListener("change", (event) => {
+    if (state.activeFormatId === "aseo") {
+      handleAseoFormDraftEvent(event);
+      if (event.target.id !== "cuartoMaduracion") updateAseoCalculations();
+    }
+  });
   elements.btnDownload.addEventListener("click", downloadExcel);
   elements.btnShareFile.addEventListener("click", shareRecordsFile);
-  elements.btnClearForm.addEventListener("click", clearFormInputs);
+  elements.btnClearForm.addEventListener("click", () => {
+    if (state.activeFormatId === "aseo") clearAseoDraft(getCurrentAseoArea());
+    clearFormInputs();
+  });
   elements.btnClearRecords.addEventListener("click", clearRecords);
   elements.btnCloseSharePanel.addEventListener("click", hideSharePanel);
 
@@ -749,6 +785,10 @@ function bindEvents() {
       deleteRecord(Number(button.dataset.deleteIndex));
     }
   });
+
+  elements.measurementsContainer.addEventListener("click", handleAseoDynamicClick);
+  elements.measurementsContainer.addEventListener("change", handleAseoDynamicChange);
+  elements.measurementsContainer.addEventListener("input", handleAseoDynamicInput);
 
   window.addEventListener("online", () => {
     queueAllFormatSyncs({ delay: 1000 });
@@ -1050,9 +1090,15 @@ async function showFormatView(formatId) {
   updateFormatSpecificFields();
   renderMeasurementFields();
   renderTableHeader();
-  loadRecords();
   handleDateChange();
   clearFormInputs();
+  if (state.activeFormatId === "aseo") {
+    state.aseoDraftArea = getCurrentAseoArea();
+    renderAseoMembers();
+    loadAseoDraftForArea(state.aseoDraftArea);
+    updateAseoCalculations();
+  }
+  loadRecords({ queueSync: false });
   applyRememberedGeneralInfo();
   applyReciboFirstRecordInfo();
   applyMaduracionFirstRecordInfo();
@@ -1063,9 +1109,10 @@ async function showFormatView(formatId) {
 
 function updateFormatSpecificFields() {
   const isNovedades = state.activeFormatId === "novedades";
-  const options = isNovedades ? novedadesAreaOptions : cuartoMaduracionOptions;
+  const isAseo = state.activeFormatId === "aseo";
+  const options = isAseo ? aseoAreaOptions : (isNovedades ? novedadesAreaOptions : cuartoMaduracionOptions);
 
-  elements.cuartoMaduracionLabel.textContent = isNovedades ? "Area" : "Cuarto de maduracion";
+  elements.cuartoMaduracionLabel.textContent = isAseo || isNovedades ? "Area" : "Cuarto de maduracion";
   elements.cuartoMaduracion.innerHTML = [
     '<option value="">Seleccionar</option>',
     ...options.map((option) => `<option value="${option}">${option}</option>`),
@@ -1092,6 +1139,11 @@ function setInitialDateTime() {
 }
 
 function renderMeasurementFields() {
+  if (state.activeFormatId === "aseo") {
+    elements.measurementsContainer.innerHTML = renderAseoFields();
+    return;
+  }
+
   if (state.activeFormatId === "prefreido") {
     elements.measurementsContainer.innerHTML = prefreidoGroups.map(renderPrefreidoMeasurementGroup).join("");
     bindMeasurementInputEvents();
@@ -1127,6 +1179,582 @@ function renderMeasurementFields() {
 
   bindMeasurementInputEvents();
 
+}
+
+function renderAseoFields() {
+  const today = toDateInputValue(new Date());
+
+  return `
+    <h2 class="section-title">
+      <i class="bi bi-people-fill" aria-hidden="true"></i>
+      Integrantes del grupo
+    </h2>
+    <div class="aseo-group-panel">
+      <div class="aseo-member-list" id="aseoMembersList"></div>
+      <div class="aseo-member-form">
+        <input class="form-control" type="text" id="aseoMemberName" placeholder="Nombre del integrante">
+        <button class="btn-clear-form" type="button" id="btnAseoAddMember">
+          <i class="bi bi-person-plus-fill" aria-hidden="true"></i>
+          Agregar integrante
+        </button>
+      </div>
+    </div>
+
+    <h2 class="section-title">
+      <i class="bi bi-clock-history" aria-hidden="true"></i>
+      Tiempos y asistencia
+    </h2>
+    <div class="measurement-grid">
+      <div class="measure-item">
+        <label for="aseoFecha">Fecha</label>
+        <input class="form-control measure-input" type="date" id="aseoFecha" value="${today}" required>
+      </div>
+      <div class="measure-item">
+        <label for="aseoHoraInicio">Hora de inicio</label>
+        <input class="form-control measure-input" type="time" id="aseoHoraInicio" required>
+        <button class="btn-clear-form aseo-inline-button" type="button" id="btnAseoStart">Registrar inicio</button>
+      </div>
+      <div class="measure-item">
+        <label for="aseoHoraFin">Hora de finalizacion</label>
+        <input class="form-control measure-input" type="time" id="aseoHoraFin" required>
+        <button class="btn-clear-form aseo-inline-button" type="button" id="btnAseoEnd">Registrar fin</button>
+      </div>
+      <div class="measure-item">
+        <label>Tiempo real</label>
+        <output class="aseo-output" id="aseoTiempoReal">-</output>
+      </div>
+      <div class="measure-item">
+        <label for="aseoAusencias">Hubo ausencias?</label>
+        <select class="form-select measure-input" id="aseoAusencias" required>
+          <option value="No">No</option>
+          <option value="Si">Si</option>
+        </select>
+      </div>
+      <div class="measure-item" id="aseoAbsentCountWrap" hidden>
+        <label for="aseoCantidadAusentes">Cantidad de ausentes</label>
+        <select class="form-select measure-input" id="aseoCantidadAusentes">
+          <option value="">Seleccionar</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+    </div>
+    <div class="aseo-absent-panel" id="aseoAbsentPanel" hidden>
+      <label class="form-label">Personas ausentes</label>
+      <div class="aseo-check-list" id="aseoAbsentList"></div>
+    </div>
+
+    <h2 class="section-title">
+      <i class="bi bi-ui-checks" aria-hidden="true"></i>
+      Criterios de evaluacion
+    </h2>
+    <div class="measurement-grid">
+      <div class="measure-item">
+        <label for="aseoCalidad">Calidad del aseo</label>
+        ${renderAseoSelect("aseoCalidad")}
+      </div>
+      <div class="measure-item">
+        <label for="aseoHerramientas">Uso adecuado de herramientas e insumos</label>
+        ${renderAseoSelect("aseoHerramientas")}
+      </div>
+      <div class="measure-item" id="aseoDelayReasonWrap" hidden>
+        <label for="aseoMotivoDemora">Motivo de demora</label>
+        <select class="form-select measure-input" id="aseoMotivoDemora">
+          <option value="">Seleccionar</option>
+          ${aseoDelayReasons.map((reason) => `<option value="${reason}">${reason}</option>`).join("")}
+        </select>
+      </div>
+      <div class="measure-item" id="aseoDelayOtherWrap" hidden>
+        <label for="aseoMotivoDemoraOtro">Otro motivo</label>
+        <input class="form-control measure-input" type="text" id="aseoMotivoDemoraOtro">
+      </div>
+    </div>
+
+    <div class="aseo-score-panel" id="aseoScorePanel">
+      <div><span>Puntaje tiempo</span><strong id="aseoPuntajeTiempo">0</strong></div>
+      <div><span>Puntaje calidad</span><strong id="aseoPuntajeCalidad">0</strong></div>
+      <div><span>Puntaje asistencia</span><strong id="aseoPuntajeAsistencia">100</strong></div>
+      <div><span>Puntaje herramientas</span><strong id="aseoPuntajeHerramientas">0</strong></div>
+      <div><span>Nota final</span><strong id="aseoNotaFinal">0.00</strong></div>
+      <div><span>Clasificacion</span><strong><span class="status-badge status-danger" id="aseoClasificacion">Requiere mejora</span></strong></div>
+    </div>
+
+    <h2 class="section-title">
+      <i class="bi bi-funnel-fill" aria-hidden="true"></i>
+      Historico e indicadores
+    </h2>
+    <div class="aseo-filter-grid">
+      <input class="form-control" type="date" id="aseoFilterFecha" aria-label="Filtrar por fecha">
+      <select class="form-select" id="aseoFilterArea" aria-label="Filtrar por area">
+        <option value="">Todas las areas</option>
+        ${aseoAreaOptions.map((area) => `<option value="${area}">${area}</option>`).join("")}
+      </select>
+      <input class="form-control" type="text" id="aseoFilterLider" placeholder="Lider">
+      <input class="form-control" type="text" id="aseoFilterIntegrante" placeholder="Integrante">
+      <select class="form-select" id="aseoFilterClasificacion" aria-label="Filtrar por clasificacion">
+        <option value="">Todas las clasificaciones</option>
+        <option value="Excelente">Excelente</option>
+        <option value="Bueno">Bueno</option>
+        <option value="Aceptable">Aceptable</option>
+        <option value="Requiere mejora">Requiere mejora</option>
+      </select>
+    </div>
+    <div class="aseo-indicators" id="aseoIndicators"></div>
+  `;
+}
+
+function renderAseoSelect(id) {
+  return `
+    <select class="form-select measure-input" id="${id}" required>
+      <option value="">Seleccionar</option>
+      ${aseoComplianceOptions.map((option) => `<option value="${option}">${option}</option>`).join("")}
+    </select>
+  `;
+}
+
+function handleAseoDynamicClick(event) {
+  if (state.activeFormatId !== "aseo") return;
+
+  const addButton = event.target.closest("#btnAseoAddMember");
+  if (addButton) {
+    addAseoMember();
+    return;
+  }
+
+  const startButton = event.target.closest("#btnAseoStart");
+  if (startButton) {
+    setAseoTimestamp("aseoHoraInicio");
+    return;
+  }
+
+  const endButton = event.target.closest("#btnAseoEnd");
+  if (endButton) {
+    setAseoTimestamp("aseoHoraFin");
+    return;
+  }
+
+  const deleteButton = event.target.closest("[data-aseo-delete-member]");
+  if (deleteButton) {
+    deleteAseoMember(deleteButton.dataset.aseoDeleteMember);
+    return;
+  }
+
+  const editButton = event.target.closest("[data-aseo-edit-member]");
+  if (editButton) editAseoMember(editButton.dataset.aseoEditMember);
+}
+
+function handleAseoDynamicChange(event) {
+  if (state.activeFormatId !== "aseo") return;
+
+  if (event.target.id === "cuartoMaduracion") {
+    renderAseoMembers();
+  }
+
+  if (event.target.matches("[data-aseo-leader]")) {
+    setAseoLeader(event.target.value);
+  }
+
+  updateAseoCalculations();
+
+  if (event.target.id?.startsWith("aseoFilter")) {
+    renderRecords();
+  }
+}
+
+function handleAseoDynamicInput(event) {
+  if (state.activeFormatId !== "aseo") return;
+
+  updateAseoCalculations();
+
+  if (event.target.id?.startsWith("aseoFilter")) {
+    renderRecords();
+  }
+}
+
+function setAseoTimestamp(targetId) {
+  const now = new Date();
+  const dateInput = document.getElementById("aseoFecha");
+  const target = document.getElementById(targetId);
+  if (dateInput) dateInput.value = toDateInputValue(now);
+  if (target) target.value = now.toTimeString().slice(0, 5);
+  saveAseoDraft(getCurrentAseoArea());
+  updateAseoCalculations();
+}
+
+function getAseoGroups() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ASEO_GROUPS_STORAGE_KEY)) || {};
+    return aseoAreaOptions.reduce((groups, area) => {
+      groups[area] = {
+        members: Array.isArray(saved[area]?.members) ? saved[area].members : [],
+        leader: saved[area]?.leader || "",
+      };
+      return groups;
+    }, {});
+  } catch {
+    return aseoAreaOptions.reduce((groups, area) => {
+      groups[area] = { members: [], leader: "" };
+      return groups;
+    }, {});
+  }
+}
+
+function saveAseoGroups(groups) {
+  localStorage.setItem(ASEO_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+}
+
+function getCurrentAseoArea() {
+  return getValue("cuartoMaduracion");
+}
+
+function getCurrentAseoGroup() {
+  const groups = getAseoGroups();
+  return groups[getCurrentAseoArea()] || { members: [], leader: "" };
+}
+
+function handleAseoAreaChange() {
+  const previousArea = state.aseoDraftArea;
+  if (previousArea) saveAseoDraft(previousArea);
+
+  state.aseoDraftArea = getCurrentAseoArea();
+  clearAseoEvaluationFields();
+  renderAseoMembers();
+  loadAseoDraftForArea(state.aseoDraftArea);
+  updateAseoCalculations();
+}
+
+function handleAseoFormDraftEvent(event) {
+  if (event.target.id === "cuartoMaduracion") return;
+  if (event.target.id?.startsWith("aseoFilter")) return;
+  saveAseoDraft(getCurrentAseoArea());
+}
+
+function getAseoDrafts() {
+  try {
+    return JSON.parse(localStorage.getItem(ASEO_DRAFTS_STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAseoDraft(area = getCurrentAseoArea()) {
+  if (!area) return;
+
+  const drafts = getAseoDrafts();
+  drafts[area] = collectAseoDraftValues();
+  localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+}
+
+function loadAseoDraftForArea(area = getCurrentAseoArea()) {
+  if (!area) {
+    clearAseoEvaluationFields();
+    return;
+  }
+
+  const draft = getAseoDrafts()[area];
+  if (!draft) {
+    clearAseoEvaluationFields();
+    return;
+  }
+
+  setAseoFieldValue("aseoFecha", draft.fecha || toDateInputValue(new Date()));
+  setAseoFieldValue("aseoHoraInicio", draft.horaInicio || "");
+  setAseoFieldValue("aseoHoraFin", draft.horaFin || "");
+  setAseoFieldValue("aseoAusencias", draft.ausencias || "No");
+  setAseoFieldValue("aseoCantidadAusentes", draft.cantidadAusentes || "");
+  setAseoFieldValue("aseoCalidad", draft.calidad || "");
+  setAseoFieldValue("aseoHerramientas", draft.herramientas || "");
+  setAseoFieldValue("aseoMotivoDemora", draft.motivoDemora || "");
+  setAseoFieldValue("aseoMotivoDemoraOtro", draft.motivoDemoraOtro || "");
+  setAseoFieldValue("observaciones", draft.observaciones || "");
+  setAseoFieldValue("realizadoPor", draft.realizadoPor || "");
+  setAseoFieldValue("verificadoPor", draft.verificadoPor || "");
+
+  document.querySelectorAll("[data-aseo-absent]").forEach((input) => {
+    input.checked = (draft.ausentes || []).includes(input.value);
+  });
+}
+
+function clearAseoDraft(area = getCurrentAseoArea()) {
+  if (!area) return;
+
+  const drafts = getAseoDrafts();
+  delete drafts[area];
+  localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+}
+
+function collectAseoDraftValues() {
+  return {
+    fecha: getValue("aseoFecha"),
+    horaInicio: getValue("aseoHoraInicio"),
+    horaFin: getValue("aseoHoraFin"),
+    ausencias: getValue("aseoAusencias") || "No",
+    cantidadAusentes: getValue("aseoCantidadAusentes"),
+    ausentes: getSelectedAseoAbsentees(),
+    calidad: getValue("aseoCalidad"),
+    herramientas: getValue("aseoHerramientas"),
+    motivoDemora: getValue("aseoMotivoDemora"),
+    motivoDemoraOtro: getValue("aseoMotivoDemoraOtro"),
+    observaciones: getValue("observaciones"),
+    realizadoPor: getValue("realizadoPor"),
+    verificadoPor: getValue("verificadoPor"),
+  };
+}
+
+function clearAseoEvaluationFields() {
+  const today = toDateInputValue(new Date());
+  [
+    "aseoHoraInicio",
+    "aseoHoraFin",
+    "aseoCantidadAusentes",
+    "aseoCalidad",
+    "aseoHerramientas",
+    "aseoMotivoDemora",
+    "aseoMotivoDemoraOtro",
+    "observaciones",
+  ].forEach((id) => setAseoFieldValue(id, ""));
+
+  setAseoFieldValue("aseoFecha", today);
+  setAseoFieldValue("aseoAusencias", "No");
+  document.querySelectorAll("[data-aseo-absent]").forEach((input) => {
+    input.checked = false;
+  });
+}
+
+function setAseoFieldValue(id, value) {
+  const input = document.getElementById(id);
+  if (input) input.value = value;
+}
+
+function renderAseoMembers() {
+  const list = document.getElementById("aseoMembersList");
+  const absentList = document.getElementById("aseoAbsentList");
+  if (!list || !absentList) return;
+
+  const area = getCurrentAseoArea();
+  const group = getCurrentAseoGroup();
+  const selectedAbsentees = getSelectedAseoAbsentees();
+  if (!area) {
+    list.innerHTML = `<p class="empty-state mb-0">Seleccione un area para gestionar integrantes.</p>`;
+    absentList.innerHTML = "";
+    return;
+  }
+
+  if (!group.members.length) {
+    list.innerHTML = `<p class="empty-state mb-0">No hay integrantes asignados a esta area.</p>`;
+  } else {
+    list.innerHTML = group.members.map((member) => `
+      <div class="aseo-member-row">
+        <label>
+          <input type="radio" name="aseoLeader" value="${escapeHtml(member)}" data-aseo-leader ${group.leader === member ? "checked" : ""}>
+          <span>${escapeHtml(member)}</span>
+          ${group.leader === member ? '<em>Lider</em>' : ""}
+        </label>
+        <div>
+          <button class="btn-delete" type="button" data-aseo-edit-member="${escapeHtml(member)}">
+            <i class="bi bi-pencil" aria-hidden="true"></i>
+          </button>
+          <button class="btn-delete" type="button" data-aseo-delete-member="${escapeHtml(member)}">
+            <i class="bi bi-trash" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  absentList.innerHTML = group.members.map((member) => `
+    <label class="aseo-check-item">
+      <input type="checkbox" value="${escapeHtml(member)}" data-aseo-absent ${selectedAbsentees.includes(member) ? "checked" : ""}>
+      <span>${escapeHtml(member)}</span>
+    </label>
+  `).join("");
+  updateAseoCalculations();
+}
+
+function addAseoMember() {
+  const input = document.getElementById("aseoMemberName");
+  const area = getCurrentAseoArea();
+  const name = input?.value.trim();
+  if (!area) {
+    window.alert("Seleccione un area antes de agregar integrantes.");
+    return;
+  }
+  if (!name) return;
+
+  const groups = getAseoGroups();
+  const group = groups[area];
+  if (!group.members.includes(name)) group.members.push(name);
+  if (!group.leader) group.leader = name;
+  saveAseoGroups(groups);
+  input.value = "";
+  renderAseoMembers();
+}
+
+function editAseoMember(currentName) {
+  const area = getCurrentAseoArea();
+  const nextName = window.prompt("Editar integrante", currentName)?.trim();
+  if (!area || !nextName) return;
+
+  const groups = getAseoGroups();
+  const group = groups[area];
+  group.members = group.members.map((member) => member === currentName ? nextName : member);
+  if (group.leader === currentName) group.leader = nextName;
+  saveAseoGroups(groups);
+  renderAseoMembers();
+}
+
+function deleteAseoMember(memberName) {
+  const area = getCurrentAseoArea();
+  if (!area) return;
+
+  const groups = getAseoGroups();
+  const group = groups[area];
+  group.members = group.members.filter((member) => member !== memberName);
+  if (group.leader === memberName) group.leader = group.members[0] || "";
+  saveAseoGroups(groups);
+  renderAseoMembers();
+}
+
+function setAseoLeader(memberName) {
+  const area = getCurrentAseoArea();
+  if (!area) return;
+
+  const groups = getAseoGroups();
+  groups[area].leader = memberName;
+  saveAseoGroups(groups);
+  renderAseoMembers();
+}
+
+function updateAseoCalculations() {
+  const data = calculateAseoEvaluation();
+  const hasAbsences = getValue("aseoAusencias") === "Si";
+  const absentCountWrap = document.getElementById("aseoAbsentCountWrap");
+  const absentPanel = document.getElementById("aseoAbsentPanel");
+  const delayReasonWrap = document.getElementById("aseoDelayReasonWrap");
+  const delayOtherWrap = document.getElementById("aseoDelayOtherWrap");
+  const delaySelect = document.getElementById("aseoMotivoDemora");
+  const delayOther = document.getElementById("aseoMotivoDemoraOtro");
+  const absentCount = document.getElementById("aseoCantidadAusentes");
+
+  if (absentCountWrap) absentCountWrap.hidden = !hasAbsences;
+  if (absentPanel) absentPanel.hidden = !hasAbsences;
+  if (absentCount) absentCount.required = hasAbsences;
+
+  const hasDelay = data.realMinutes > data.targetMinutes;
+  if (delayReasonWrap) delayReasonWrap.hidden = !hasDelay;
+  if (delaySelect) delaySelect.required = hasDelay;
+  if (delayOtherWrap) delayOtherWrap.hidden = !(hasDelay && delaySelect?.value === "Otro");
+  if (delayOther) delayOther.required = hasDelay && delaySelect?.value === "Otro";
+
+  setText("aseoTiempoReal", data.realTimeLabel);
+  setText("aseoPuntajeTiempo", data.timeScore);
+  setText("aseoPuntajeCalidad", data.qualityScore);
+  setText("aseoPuntajeAsistencia", data.attendanceScore);
+  setText("aseoPuntajeHerramientas", data.toolsScore);
+  setText("aseoNotaFinal", data.finalScore.toFixed(2));
+  const badge = document.getElementById("aseoClasificacion");
+  if (badge) {
+    badge.textContent = data.classification;
+    badge.className = `status-badge ${getAseoClassificationClass(data.classification)}`;
+  }
+}
+
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+}
+
+function calculateAseoEvaluation() {
+  const area = getCurrentAseoArea();
+  const targetMinutes = aseoTargetMinutes[area] || 0;
+  const realMinutes = getAseoRealMinutes();
+  const qualityScore = getAseoComplianceScore(getValue("aseoCalidad"));
+  const toolsScore = getAseoComplianceScore(getValue("aseoHerramientas"));
+  const absentCount = getAseoAbsentCount();
+  const attendanceScore = Math.max(0, 100 - absentCount * 25);
+  const timeScore = getAseoTimeScore(realMinutes, targetMinutes);
+  let finalScore = (timeScore * 0.4) + (qualityScore * 0.35) + (attendanceScore * 0.15) + (toolsScore * 0.1);
+  if (getValue("aseoCalidad") === "No cumple") finalScore = Math.min(finalScore, 60);
+
+  return {
+    targetMinutes,
+    realMinutes,
+    realTimeLabel: formatMinutes(realMinutes),
+    timeScore,
+    qualityScore,
+    attendanceScore,
+    toolsScore,
+    finalScore,
+    classification: getAseoClassification(finalScore),
+  };
+}
+
+function getAseoRealMinutes() {
+  const date = getValue("aseoFecha") || state.selectedDate || toDateInputValue(new Date());
+  const start = getValue("aseoHoraInicio");
+  const end = getValue("aseoHoraFin");
+  if (!start || !end) return 0;
+
+  const startDate = new Date(`${date}T${start}`);
+  let endDate = new Date(`${date}T${end}`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  if (endDate < startDate) endDate = new Date(endDate.getTime() + 86400000);
+
+  return Math.round((endDate - startDate) / 60000);
+}
+
+function getAseoComplianceScore(value) {
+  return {
+    Cumple: 100,
+    "Cumple parcialmente": 50,
+    "No cumple": 0,
+  }[value] ?? 0;
+}
+
+function getAseoAbsentCount() {
+  if (getValue("aseoAusencias") !== "Si") return 0;
+  return Number(getValue("aseoCantidadAusentes")) || getSelectedAseoAbsentees().length || 0;
+}
+
+function getSelectedAseoAbsentees() {
+  return Array.from(document.querySelectorAll("[data-aseo-absent]:checked")).map((input) => input.value);
+}
+
+function getAseoTimeScore(realMinutes, targetMinutes) {
+  if (!realMinutes || !targetMinutes) return 0;
+  if (realMinutes <= targetMinutes) return 100;
+  const ratio = realMinutes / targetMinutes;
+  if (ratio <= 1.1) return 90;
+  if (ratio <= 1.2) return 75;
+  if (ratio <= 1.3) return 50;
+  return 0;
+}
+
+function formatMinutes(minutes) {
+  if (!minutes) return "-";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (!hours) return `${rest} min`;
+  if (!rest) return `${hours} h`;
+  return `${hours} h ${rest} min`;
+}
+
+function getAseoClassification(score) {
+  if (score >= 90) return "Excelente";
+  if (score >= 80) return "Bueno";
+  if (score >= 70) return "Aceptable";
+  return "Requiere mejora";
+}
+
+function getAseoClassificationClass(classification) {
+  return {
+    Excelente: "status-ok",
+    Bueno: "status-ok",
+    Aceptable: "status-warning",
+    "Requiere mejora": "status-danger",
+  }[classification] || "status-danger";
 }
 
 function renderPrefreidoMeasurementGroup(group) {
@@ -1463,6 +2091,29 @@ function getTableColumns() {
     ];
   }
 
+  if (state.activeFormatId === "aseo") {
+    return [
+      "#",
+      "Fecha",
+      "Area",
+      "Integrantes",
+      "Lider",
+      "Hora inicio",
+      "Hora fin",
+      "Tiempo real",
+      "Tiempo",
+      "Calidad",
+      "Asistencia",
+      "Herramientas",
+      "Nota final",
+      "Clasificacion",
+      "Ausentes",
+      "Motivo demora",
+      "Observaciones",
+      "Accion",
+    ];
+  }
+
   if (state.activeFormatId === "iqf") {
     const measureColumns = iqfGroups.flatMap((group) => {
       return Array.from({ length: getGroupCount(group) }, (_, index) => `${group.columnPrefix}${index + 1}`);
@@ -1777,8 +2428,21 @@ function parseMeasurementNumber(value) {
 async function addRecord(event) {
   event.preventDefault();
   handleDateChange();
+  if (state.activeFormatId === "aseo") updateAseoCalculations();
 
   if (!elements.form.reportValidity()) return;
+
+  if (state.activeFormatId === "aseo") {
+    const record = buildAseoRecord();
+    if (!record) return;
+    const saved = await saveRecord(record);
+    if (!saved) return;
+    clearAseoDraft(record.cuarto);
+    renderRecords();
+    renderAseoSavedSummary(record);
+    resetFormAfterSave();
+    return;
+  }
 
   const record = {
     fechaIso: state.selectedDate,
@@ -1809,6 +2473,105 @@ async function addRecord(event) {
   resetFormAfterSave();
 }
 
+function buildAseoRecord() {
+  const area = getCurrentAseoArea();
+  const group = getCurrentAseoGroup();
+  const evaluation = calculateAseoEvaluation();
+  const absentees = getSelectedAseoAbsentees();
+  const absentCount = getAseoAbsentCount();
+  const delayReason = getValue("aseoMotivoDemora");
+  const delayOther = getValue("aseoMotivoDemoraOtro");
+  const dateIso = getValue("aseoFecha") || state.selectedDate || toDateInputValue(new Date());
+
+  if (!area) {
+    window.alert("Seleccione el area de aseo.");
+    return null;
+  }
+  if (!group.members.length) {
+    window.alert("Agregue al menos un integrante del grupo.");
+    return null;
+  }
+  if (!group.leader) {
+    window.alert("Seleccione un integrante como lider.");
+    return null;
+  }
+  if (getValue("aseoAusencias") === "Si" && absentCount !== absentees.length) {
+    window.alert("La cantidad de ausentes debe coincidir con las personas seleccionadas.");
+    return null;
+  }
+  if (evaluation.realMinutes > evaluation.targetMinutes && (!delayReason || (delayReason === "Otro" && !delayOther))) {
+    window.alert("Registre el motivo de demora.");
+    return null;
+  }
+
+  const date = new Date(`${dateIso}T00:00:00`);
+  const fecha = Number.isNaN(date.getTime()) ? dateIso : date.toLocaleDateString("es-CO", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  return {
+    id: crypto.randomUUID?.() || String(Date.now()),
+    fechaIso: dateIso,
+    fecha,
+    mes: getMonthName(dateIso),
+    fechaJuliana: getWeekYear(dateIso),
+    hora: getValue("aseoHoraInicio"),
+    horaFin: getValue("aseoHoraFin"),
+    cuarto: area,
+    lote: "",
+    realizadoPor: getValue("realizadoPor"),
+    verificadoPor: getValue("verificadoPor"),
+    observaciones: getValue("observaciones"),
+    estado: evaluation.classification,
+    medidas: {
+      integrantes: group.members,
+      lider: group.leader,
+      horaInicio: getValue("aseoHoraInicio"),
+      horaFin: getValue("aseoHoraFin"),
+      tiempoRealMinutos: evaluation.realMinutes,
+      tiempoReal: evaluation.realTimeLabel,
+      tiempoObjetivoMinutos: evaluation.targetMinutes,
+      ausencias: getValue("aseoAusencias"),
+      cantidadAusentes: absentCount,
+      ausentes: absentees,
+      calidad: getValue("aseoCalidad"),
+      herramientas: getValue("aseoHerramientas"),
+      puntajeTiempo: evaluation.timeScore,
+      puntajeCalidad: evaluation.qualityScore,
+      puntajeAsistencia: evaluation.attendanceScore,
+      puntajeHerramientas: evaluation.toolsScore,
+      notaFinal: Number(evaluation.finalScore.toFixed(2)),
+      clasificacion: evaluation.classification,
+      motivoDemora: delayReason === "Otro" ? delayOther : delayReason,
+    },
+    briz: [],
+  };
+}
+
+function renderAseoSavedSummary(record) {
+  window.alert([
+    "Evaluacion de aseo guardada",
+    `Fecha: ${record.fecha}`,
+    `Area: ${record.cuarto}`,
+    `Integrantes: ${record.medidas.integrantes.join(", ")}`,
+    `Lider: ${record.medidas.lider}`,
+    `Hora inicio: ${record.medidas.horaInicio}`,
+    `Hora fin: ${record.medidas.horaFin}`,
+    `Tiempo real: ${record.medidas.tiempoReal}`,
+    `Puntaje tiempo: ${record.medidas.puntajeTiempo}`,
+    `Puntaje calidad: ${record.medidas.puntajeCalidad}`,
+    `Puntaje asistencia: ${record.medidas.puntajeAsistencia}`,
+    `Puntaje uso de herramientas: ${record.medidas.puntajeHerramientas}`,
+    `Nota final: ${record.medidas.notaFinal}`,
+    `Clasificacion: ${record.medidas.clasificacion}`,
+    `Ausentes: ${record.medidas.ausentes.join(", ") || "Ninguno"}`,
+    `Motivo de demora: ${record.medidas.motivoDemora || "-"}`,
+    `Observaciones: ${record.observaciones || "-"}`,
+  ].join("\n"));
+}
+
 function getValue(id) {
   const element = document.getElementById(id);
   if (!element) return "";
@@ -1836,6 +2599,10 @@ function collectMeasurements() {
   }
 
   if (state.activeFormatId === "novedades") {
+    return {};
+  }
+
+  if (state.activeFormatId === "aseo") {
     return {};
   }
 
@@ -1880,6 +2647,10 @@ function getRecordStatus(record) {
 
   if (state.activeFormatId === "novedades") {
     return "OK";
+  }
+
+  if (state.activeFormatId === "aseo") {
+    return record.medidas.clasificacion || "Requiere mejora";
   }
 
   if (state.activeFormatId === "recibo") {
@@ -1962,6 +2733,10 @@ function getRecordStatus(record) {
 
 function resetFormAfterSave() {
   clearFormInputs();
+  if (state.activeFormatId === "aseo") {
+    renderAseoMembers();
+    updateAseoCalculations();
+  }
   applyReciboFirstRecordInfo();
   applyMaduracionFirstRecordInfo();
 }
@@ -1972,6 +2747,7 @@ function clearFormInputs() {
     fecha: elements.fechaRegistro.value,
     lote: elements.loteProduccion.value,
     hora: elements.horaInicio.value,
+    area: elements.cuartoMaduracion.value,
   };
   const generalValues = shouldRememberGeneralInfo() ? getGeneralFormValues() : {};
 
@@ -1980,6 +2756,12 @@ function clearFormInputs() {
   elements.fechaRegistro.value = selectedValues.fecha;
   elements.loteProduccion.value = selectedValues.lote;
   elements.horaInicio.value = selectedValues.hora;
+  if (state.activeFormatId === "aseo") elements.cuartoMaduracion.value = selectedValues.area;
+  if (state.activeFormatId === "aseo") {
+    const today = toDateInputValue(new Date());
+    const aseoFecha = document.getElementById("aseoFecha");
+    if (aseoFecha) aseoFecha.value = today;
+  }
   if (shouldRememberGeneralInfo()) setGeneralFormValues(generalValues);
   applyReciboFirstRecordInfo();
   applyMaduracionFirstRecordInfo();
@@ -2064,11 +2846,11 @@ function applyMaduracionFirstRecordInfo() {
   });
 }
 
-function loadRecords() {
+function loadRecords({ queueSync = true } = {}) {
   state.records = loadLocalRecords(state.activeFormatId).filter((record) => !record._deleted);
   renderRecords();
 
-  queueFormatSync(state.activeFormatId, { full: true, delay: 1200 });
+  if (queueSync) queueFormatSync(state.activeFormatId, { full: true, delay: 1200 });
 }
 
 async function loadCloudRecords(formatId = state.activeFormatId) {
@@ -2129,6 +2911,7 @@ function normalizeRecord(record, formatId = state.activeFormatId) {
     fechaJuliana: record.fechaJuliana || "",
     loteMateriaPrima: record.loteMateriaPrima || "",
     hora: record.hora || "",
+    horaFin: record.horaFin || record.medidas?.horaFin || "",
     cuarto: record.cuarto || "",
     lote: record.lote || "",
     realizadoPor: record.realizadoPor || "",
@@ -2166,6 +2949,10 @@ function normalizeMeasurements(measurements = {}, formatId = state.activeFormatI
     return {};
   }
 
+  if (formatId === "aseo") {
+    return normalizeAseoMeasurements(measurements);
+  }
+
   if (formatId === "iqf") {
     return iqfGroups.reduce((result, group) => {
       result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
@@ -2184,6 +2971,30 @@ function normalizeMeasurements(measurements = {}, formatId = state.activeFormatI
     result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
     return result;
   }, {});
+}
+
+function normalizeAseoMeasurements(measurements = {}) {
+  return {
+    integrantes: Array.isArray(measurements.integrantes) ? measurements.integrantes : [],
+    lider: measurements.lider || "",
+    horaInicio: measurements.horaInicio || "",
+    horaFin: measurements.horaFin || "",
+    tiempoRealMinutos: Number(measurements.tiempoRealMinutos) || 0,
+    tiempoReal: measurements.tiempoReal || formatMinutes(Number(measurements.tiempoRealMinutos) || 0),
+    tiempoObjetivoMinutos: Number(measurements.tiempoObjetivoMinutos) || 0,
+    ausencias: measurements.ausencias || "No",
+    cantidadAusentes: Number(measurements.cantidadAusentes) || 0,
+    ausentes: Array.isArray(measurements.ausentes) ? measurements.ausentes : [],
+    calidad: measurements.calidad || "",
+    herramientas: measurements.herramientas || "",
+    puntajeTiempo: Number(measurements.puntajeTiempo) || 0,
+    puntajeCalidad: Number(measurements.puntajeCalidad) || 0,
+    puntajeAsistencia: Number(measurements.puntajeAsistencia) || 0,
+    puntajeHerramientas: Number(measurements.puntajeHerramientas) || 0,
+    notaFinal: Number(measurements.notaFinal) || 0,
+    clasificacion: measurements.clasificacion || "Requiere mejora",
+    motivoDemora: measurements.motivoDemora || "",
+  };
 }
 
 function normalizeFixedArray(values, length = 5) {
@@ -2487,12 +3298,18 @@ function canSyncCloud() {
 }
 
 function renderRecords() {
-  elements.recordCount.textContent = state.records.length;
+  const visibleRecords = state.activeFormatId === "aseo" ? getFilteredAseoRecords() : state.records;
+  const recordIndexes = state.activeFormatId === "aseo"
+    ? new Map(state.records.map((record, index) => [record.id, index]))
+    : null;
+
+  elements.recordCount.textContent = visibleRecords.length;
   elements.btnDownload.disabled = state.records.length === 0;
   elements.btnShareFile.disabled = state.records.length === 0;
   elements.btnClearRecords.disabled = state.records.length === 0;
+  if (state.activeFormatId === "aseo") updateAseoHistoryIndicators(visibleRecords);
 
-  if (state.records.length === 0) {
+  if (visibleRecords.length === 0) {
     elements.recordsBody.innerHTML = `
       <tr>
         <td colspan="${getTableColumns().length}" class="empty-state">
@@ -2505,7 +3322,9 @@ function renderRecords() {
     return;
   }
 
-  elements.recordsBody.innerHTML = state.records.map(renderRecordRow).join("");
+  elements.recordsBody.innerHTML = visibleRecords
+    .map((record, index) => renderRecordRow(record, recordIndexes?.get(record.id) ?? index))
+    .join("");
 }
 
 function renderRecordRow(record, index) {
@@ -2581,6 +3400,36 @@ function renderRecordRow(record, index) {
     `;
   }
 
+  if (state.activeFormatId === "aseo") {
+    const classificationClass = getAseoClassificationClass(record.medidas.clasificacion);
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(record.fecha)}</td>
+        <td>${escapeHtml(record.cuarto)}</td>
+        <td>${escapeHtml(record.medidas.integrantes.join(", "))}</td>
+        <td>${escapeHtml(record.medidas.lider)}</td>
+        <td>${escapeHtml(record.medidas.horaInicio)}</td>
+        <td>${escapeHtml(record.medidas.horaFin)}</td>
+        <td>${escapeHtml(record.medidas.tiempoReal)}</td>
+        <td>${escapeHtml(record.medidas.puntajeTiempo)}</td>
+        <td>${escapeHtml(record.medidas.puntajeCalidad)}</td>
+        <td>${escapeHtml(record.medidas.puntajeAsistencia)}</td>
+        <td>${escapeHtml(record.medidas.puntajeHerramientas)}</td>
+        <td>${escapeHtml(record.medidas.notaFinal)}</td>
+        <td><span class="status-badge ${classificationClass}">${escapeHtml(record.medidas.clasificacion)}</span></td>
+        <td>${escapeHtml(record.medidas.ausentes.join(", ") || "-")}</td>
+        <td>${escapeHtml(record.medidas.motivoDemora || "-")}</td>
+        <td>${escapeHtml(record.observaciones || "-")}</td>
+        <td>
+          <button class="btn-delete" type="button" data-delete-index="${index}">
+            <i class="bi bi-trash" aria-hidden="true"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }
+
   return `
     <tr>
       <td>${index + 1}</td>
@@ -2643,6 +3492,10 @@ function getRecordMeasureValues(record) {
     return [];
   }
 
+  if (state.activeFormatId === "aseo") {
+    return [];
+  }
+
   if (state.activeFormatId === "iqf") {
     return iqfGroups.flatMap((group) => record.medidas[group.id] || normalizeFixedArray([], getGroupCount(group)));
   }
@@ -2657,8 +3510,98 @@ function getRecordMeasureValues(record) {
   ];
 }
 
+function getFilteredAseoRecords(records = state.records) {
+  if (state.activeFormatId !== "aseo") return records;
+
+  const fecha = getValue("aseoFilterFecha");
+  const area = getValue("aseoFilterArea");
+  const lider = getValue("aseoFilterLider").toLowerCase();
+  const integrante = getValue("aseoFilterIntegrante").toLowerCase();
+  const clasificacion = getValue("aseoFilterClasificacion");
+
+  return records.filter((record) => {
+    const members = record.medidas.integrantes.join(" ").toLowerCase();
+    return (!fecha || record.fechaIso === fecha)
+      && (!area || record.cuarto === area)
+      && (!lider || record.medidas.lider.toLowerCase().includes(lider))
+      && (!integrante || members.includes(integrante))
+      && (!clasificacion || record.medidas.clasificacion === clasificacion);
+  });
+}
+
+function updateAseoHistoryIndicators(visibleRecords = getFilteredAseoRecords()) {
+  const container = document.getElementById("aseoIndicators");
+  if (!container) return;
+
+  const monthlyRecords = visibleRecords.filter((record) => isCurrentMonth(record.fechaIso));
+  const timeCompliance = visibleRecords.length
+    ? (visibleRecords.filter((record) => record.medidas.tiempoRealMinutos <= record.medidas.tiempoObjetivoMinutos).length / visibleRecords.length) * 100
+    : 0;
+  const byArea = buildAseoAverageList(monthlyRecords, (record) => record.cuarto);
+  const byLeader = buildAseoAverageList(monthlyRecords, (record) => record.medidas.lider);
+  const byGroup = buildAseoAverageList(monthlyRecords, (record) => record.medidas.integrantes.join(", "));
+
+  container.innerHTML = `
+    <div class="aseo-indicator-card">
+      <span>Evaluaciones</span>
+      <strong>${visibleRecords.length}</strong>
+    </div>
+    <div class="aseo-indicator-card">
+      <span>Cumplimiento de tiempo</span>
+      <strong>${timeCompliance.toFixed(1)}%</strong>
+    </div>
+    <div class="aseo-indicator-card">
+      <span>Promedio mensual por area</span>
+      <p>${formatAseoAverageList(byArea)}</p>
+    </div>
+    <div class="aseo-indicator-card">
+      <span>Promedio mensual por lider</span>
+      <p>${formatAseoAverageList(byLeader)}</p>
+    </div>
+    <div class="aseo-indicator-card">
+      <span>Promedio mensual por grupo</span>
+      <p>${formatAseoAverageList(byGroup)}</p>
+    </div>
+    <div class="aseo-indicator-card">
+      <span>Ranking de grupos</span>
+      <p>${formatAseoAverageList(byGroup.slice(0, 5))}</p>
+    </div>
+  `;
+}
+
+function isCurrentMonth(dateString) {
+  const date = new Date(`${dateString}T00:00:00`);
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+}
+
+function buildAseoAverageList(records, getKey) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const key = getKey(record) || "Sin dato";
+    const current = groups.get(key) || { total: 0, count: 0 };
+    current.total += Number(record.medidas.notaFinal) || 0;
+    current.count += 1;
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, value]) => ({ key, average: value.total / value.count, count: value.count }))
+    .sort((a, b) => b.average - a.average);
+}
+
+function formatAseoAverageList(items) {
+  if (!items.length) return "Sin registros";
+  return items.map((item) => `${escapeHtml(item.key)}: ${item.average.toFixed(2)} (${item.count})`).join("<br>");
+}
+
 function downloadExcel() {
   if (!state.records.length) return;
+  if (state.activeFormatId === "aseo" && !getAseoExportRecords().length) {
+    window.alert("No hay registros guardados para el area seleccionada.");
+    return;
+  }
+
   const exportFile = createRecordsFile();
   if (!exportFile) {
     showSharePanel();
@@ -2671,6 +3614,7 @@ function downloadExcel() {
 function createRecordsFile() {
   const rows = getExportRows();
   const date = toDateInputValue(new Date());
+  const sheetName = state.activeFormatId === "aseo" ? getAseoExportSheetName() : "Control de Calidad";
 
   if (typeof XLSX === "undefined") {
     return null;
@@ -2678,16 +3622,47 @@ function createRecordsFile() {
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Control de Calidad");
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
 
   return {
     blob: new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
-    name: `control-calidad-${state.activeFormatId}-${date}.xlsx`,
+    name: getExportFileName(date),
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   };
+}
+
+function getExportFileName(date) {
+  if (state.activeFormatId !== "aseo") return `control-calidad-${state.activeFormatId}-${date}.xlsx`;
+
+  const area = getAseoExportArea();
+  const areaPart = area ? slugifyFilePart(area) : "todas-las-areas";
+  return `evaluacion-aseo-${areaPart}-${date}.xlsx`;
+}
+
+function getAseoExportArea() {
+  return getValue("cuartoMaduracion") || getValue("aseoFilterArea");
+}
+
+function getAseoExportSheetName() {
+  const area = getAseoExportArea();
+  return (area || "Aseo").slice(0, 31);
+}
+
+function getAseoExportRecords() {
+  const area = getAseoExportArea();
+  return area ? state.records.filter((record) => record.cuarto === area) : state.records;
+}
+
+function slugifyFilePart(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function getExportRows() {
@@ -2756,6 +3731,34 @@ function getExportRows() {
     }));
   }
 
+  if (state.activeFormatId === "aseo") {
+    return getAseoExportRecords().map((record, index) => ({
+      "#": index + 1,
+      Fecha: record.fecha,
+      Area: record.cuarto,
+      Integrantes: record.medidas.integrantes.join(", "),
+      Lider: record.medidas.lider,
+      "Hora inicio": record.medidas.horaInicio,
+      "Hora fin": record.medidas.horaFin,
+      "Tiempo real": record.medidas.tiempoReal,
+      "Tiempo objetivo (min)": record.medidas.tiempoObjetivoMinutos,
+      "Puntaje tiempo": record.medidas.puntajeTiempo,
+      "Calidad del aseo": record.medidas.calidad,
+      "Puntaje calidad": record.medidas.puntajeCalidad,
+      "Cantidad ausentes": record.medidas.cantidadAusentes,
+      Ausentes: record.medidas.ausentes.join(", "),
+      "Puntaje asistencia": record.medidas.puntajeAsistencia,
+      "Uso de herramientas": record.medidas.herramientas,
+      "Puntaje uso de herramientas": record.medidas.puntajeHerramientas,
+      "Nota final": record.medidas.notaFinal,
+      Clasificacion: record.medidas.clasificacion,
+      "Motivo de demora": record.medidas.motivoDemora,
+      Observaciones: record.observaciones,
+      "Realizado por": record.realizadoPor,
+      "Verificado por": record.verificadoPor,
+    }));
+  }
+
   if (state.activeFormatId === "iqf") {
     return getIqfExportRows();
   }
@@ -2819,6 +3822,11 @@ function getExportRows() {
 
 async function shareRecordsFile() {
   if (!state.records.length) return;
+  if (state.activeFormatId === "aseo" && !getAseoExportRecords().length) {
+    window.alert("No hay registros guardados para el area seleccionada.");
+    return;
+  }
+
   const exportFile = createRecordsFile();
   if (!exportFile) {
     showSharePanel();

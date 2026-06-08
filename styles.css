@@ -901,6 +901,133 @@ body {
   font-size: 48px;
 }
 
+.aseo-group-panel,
+.aseo-score-panel,
+.aseo-indicators {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.aseo-member-form,
+.aseo-member-row,
+.aseo-filter-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.aseo-member-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.aseo-member-list,
+.aseo-absent-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--bg-input);
+}
+
+.aseo-member-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.aseo-member-row:last-child {
+  border-bottom: 0;
+}
+
+.aseo-member-row label,
+.aseo-check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.aseo-member-row em {
+  border-radius: 20px;
+  padding: 3px 8px;
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.18);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.aseo-check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aseo-check-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #0f172a;
+}
+
+.aseo-inline-button {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+}
+
+.aseo-output {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-main);
+  background: var(--bg-input);
+  font-weight: 800;
+}
+
+.aseo-score-panel,
+.aseo-indicators {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.aseo-score-panel > div,
+.aseo-indicator-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--bg-input);
+}
+
+.aseo-score-panel span,
+.aseo-indicator-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.aseo-score-panel strong,
+.aseo-indicator-card strong {
+  color: var(--text-main);
+  font-size: 22px;
+}
+
+.aseo-indicator-card p {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.aseo-filter-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  margin-bottom: 16px;
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -981,5 +1108,9 @@ body {
 
   .btn-share-close {
     width: 100%;
+  }
+
+  .aseo-member-form {
+    grid-template-columns: 1fr;
   }
 }
