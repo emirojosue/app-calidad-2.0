@@ -15,6 +15,7 @@ const FORMAT_STORAGE_KEYS = {
 };
 const ASEO_GROUPS_STORAGE_KEY = `${STORAGE_KEY}:aseo:groups`;
 const ASEO_DRAFTS_STORAGE_KEY = `${STORAGE_KEY}:aseo:drafts`;
+const ASEO_ACTIVE_AREA_STORAGE_KEY = `${STORAGE_KEY}:aseo:activeArea`;
 
 const measurementGroups = [
   {
@@ -793,6 +794,10 @@ function bindEvents() {
   window.addEventListener("online", () => {
     queueAllFormatSyncs({ delay: 1000 });
   });
+
+  window.addEventListener("beforeunload", () => {
+    if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+  });
 }
 
 function isCloudConfigured() {
@@ -1085,9 +1090,11 @@ async function initializeAppView() {
 }
 
 async function showFormatView(formatId) {
+  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
   state.activeFormatId = formatId;
   elements.formatViewTitle.textContent = formatTitles[formatId];
   updateFormatSpecificFields();
+  if (state.activeFormatId === "aseo") restoreLastAseoArea();
   renderMeasurementFields();
   renderTableHeader();
   handleDateChange();
@@ -1126,6 +1133,7 @@ function updateFormatSpecificFields() {
 }
 
 function showMainMenu() {
+  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
   elements.porcionadoView.hidden = true;
   elements.mainMenu.hidden = false;
   elements.mainMenu.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1409,6 +1417,13 @@ function getCurrentAseoArea() {
   return getValue("cuartoMaduracion");
 }
 
+function restoreLastAseoArea() {
+  const savedArea = localStorage.getItem(ASEO_ACTIVE_AREA_STORAGE_KEY);
+  if (savedArea && aseoAreaOptions.includes(savedArea)) {
+    elements.cuartoMaduracion.value = savedArea;
+  }
+}
+
 function getCurrentAseoGroup() {
   const groups = getAseoGroups();
   return groups[getCurrentAseoArea()] || { members: [], leader: "" };
@@ -1416,9 +1431,14 @@ function getCurrentAseoGroup() {
 
 function handleAseoAreaChange() {
   const previousArea = state.aseoDraftArea;
+  const pendingDraft = previousArea ? null : collectAseoDraftValues();
   if (previousArea) saveAseoDraft(previousArea);
 
   state.aseoDraftArea = getCurrentAseoArea();
+  if (state.aseoDraftArea) localStorage.setItem(ASEO_ACTIVE_AREA_STORAGE_KEY, state.aseoDraftArea);
+  if (state.aseoDraftArea && hasAseoDraftValues(pendingDraft)) {
+    saveAseoDraftValues(state.aseoDraftArea, pendingDraft);
+  }
   clearAseoEvaluationFields();
   renderAseoMembers();
   loadAseoDraftForArea(state.aseoDraftArea);
@@ -1442,8 +1462,14 @@ function getAseoDrafts() {
 function saveAseoDraft(area = getCurrentAseoArea()) {
   if (!area) return;
 
+  saveAseoDraftValues(area, collectAseoDraftValues());
+}
+
+function saveAseoDraftValues(area, values) {
+  if (!area) return;
+
   const drafts = getAseoDrafts();
-  drafts[area] = collectAseoDraftValues();
+  drafts[area] = values;
   localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
 }
 
@@ -1501,6 +1527,21 @@ function collectAseoDraftValues() {
     realizadoPor: getValue("realizadoPor"),
     verificadoPor: getValue("verificadoPor"),
   };
+}
+
+function hasAseoDraftValues(draft) {
+  if (!draft) return false;
+
+  return [
+    draft.horaInicio,
+    draft.horaFin,
+    draft.cantidadAusentes,
+    draft.calidad,
+    draft.herramientas,
+    draft.motivoDemora,
+    draft.motivoDemoraOtro,
+    draft.observaciones,
+  ].some(Boolean) || (draft.ausentes || []).length > 0;
 }
 
 function clearAseoEvaluationFields() {
