@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-calidad-v43";
+const CACHE_NAME = "control-calidad-v45";
 
 const LOCAL_ASSETS = [
   "./",
@@ -6,6 +6,11 @@ const LOCAL_ASSETS = [
   "./styles.css",
   "./app.js",
   "./config.js",
+  "./src/data/app-data.js",
+  "./src/features/auth.js",
+  "./src/features/aseo.js",
+  "./src/services/records-store.js",
+  "./src/services/export-records.js",
   "./manifest.webmanifest",
   "./app-icon.svg",
 ];

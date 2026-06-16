@@ -1,631 +1,39 @@
-const STORAGE_KEY = "qualityControlRecords";
-const OTHER_VALUE = "__other__";
-const CLOUD_CONFIG = window.CONTROL_CALIDAD_CONFIG || {};
-const SUPER_USER_NAME = CLOUD_CONFIG.superUserName || "calidad";
-const SUPER_USER_EMAIL = CLOUD_CONFIG.superUserEmail || "calidad@controlcalidad.com";
-const USERNAME_DOMAIN = CLOUD_CONFIG.usernameDomain || "controlcalidad.com";
-const FORMAT_STORAGE_KEYS = {
-  porcionado: STORAGE_KEY,
-  prefreido: `${STORAGE_KEY}:prefreido`,
-  iqf: `${STORAGE_KEY}:iqf`,
-  maduracion: `${STORAGE_KEY}:maduracion`,
-  recibo: `${STORAGE_KEY}:recibo`,
-  novedades: `${STORAGE_KEY}:novedades`,
-  aseo: `${STORAGE_KEY}:aseo`,
-};
-const ASEO_GROUPS_STORAGE_KEY = `${STORAGE_KEY}:aseo:groups`;
-const ASEO_DRAFTS_STORAGE_KEY = `${STORAGE_KEY}:aseo:drafts`;
-const ASEO_ACTIVE_AREA_STORAGE_KEY = `${STORAGE_KEY}:aseo:activeArea`;
+var {
+  STORAGE_KEY,
+  OTHER_VALUE,
+  CLOUD_CONFIG,
+  SUPER_USER_NAME,
+  SUPER_USER_EMAIL,
+  USERNAME_DOMAIN,
+  FORMAT_STORAGE_KEYS,
+  ASEO_GROUPS_STORAGE_KEY,
+  ASEO_DRAFTS_STORAGE_KEY,
+  ASEO_ACTIVE_AREA_STORAGE_KEY,
+  FORM_DRAFTS_STORAGE_KEY,
+  measurementGroups,
+  brixRange,
+  binaryOptions,
+  rememberedGeneralFormats,
+  generalFieldIds,
+  reciboFirstRecordAutofillTitles,
+  reciboFirstRecordAutofillIds,
+  maduracionFirstRecordAutofillIds,
+  cuartoMaduracionOptions,
+  novedadesAreaOptions,
+  aseoAreaOptions,
+  aseoTargetMinutes,
+  aseoComplianceOptions,
+  aseoDelayReasons,
+  brixSuggestions,
+  tableColumns,
+  prefreidoGroups,
+  iqfGroups,
+  reciboGroups,
+  maduracionGroups,
+  formatTitles,
+} = window.ControlCalidadData;
 
-const measurementGroups = [
-  {
-    id: "temperaturaAmbiente",
-    title: "Temperatura ambiente",
-    icon: "bi-thermometer-half",
-    label: "Temperatura ambiente",
-    unit: "&deg;C",
-    inputType: "number",
-    step: 0.1,
-    count: 1,
-  },
-  {
-    id: "peso",
-    title: "Peso tajada al ingreso del freído (32-45 g)",
-    icon: "bi-speedometer2",
-    label: "Peso",
-    unit: "g",
-    min: 32,
-    max: 45,
-    step: 1,
-  },
-  {
-    id: "longitud",
-    title: "Longitud (6-9 cm)",
-    icon: "bi-rulers",
-    label: "Longitud",
-    unit: "cm",
-    min: 6,
-    max: 9,
-    step: 0.1,
-  },
-  {
-    id: "amplitud",
-    title: "Amplitud (3.5-4 cm)",
-    icon: "bi-arrows-expand",
-    label: "Amplitud",
-    unit: "cm",
-    min: 3.5,
-    max: 4,
-    step: 0.1,
-  },
-  {
-    id: "grosor",
-    title: "Grosor (2-2.5 cm)",
-    icon: "bi-layers",
-    label: "Grosor",
-    unit: "cm",
-    min: 2,
-    max: 2.5,
-    step: 0.1,
-  },
-];
-
-const brixRange = {
-  min: 28,
-  max: 32,
-  step: 0.1,
-};
-
-const binaryOptions = ["1", "0"];
-const rememberedGeneralFormats = ["maduracion", "recibo"];
-const generalFieldIds = ["horaInicio", "cuartoMaduracion", "realizadoPor", "verificadoPor", "observaciones"];
-const reciboFirstRecordAutofillTitles = [
-  "Datos de ingreso",
-  "Condiciones del vehiculo y conductor",
-  "Proveedor y cosecha",
-];
-const reciboFirstRecordAutofillIds = [
-  "plaga",
-  "olorRecibo",
-  "colorRecibo",
-];
-const maduracionFirstRecordAutofillIds = [
-  "tempCuartoMaduracion",
-  "humedadCuartoMaduracion",
-  "saborMaduracion",
-  "olorMaduracion",
-  "colorMaduracion",
-];
-const cuartoMaduracionOptions = ["1", "2", "3", "4", "5", "6"];
-const novedadesAreaOptions = ["Pelado y porcionado", "Prefrito, picking e IQF", "IQF y empaque"];
-const aseoAreaOptions = ["Pelado y Porcionado", "Picking", "IQF", "Empaque"];
-const aseoTargetMinutes = {
-  "Pelado y Porcionado": 90,
-  Picking: 60,
-  IQF: 150,
-  Empaque: 90,
-};
-const aseoComplianceOptions = ["Cumple", "Cumple parcialmente", "No cumple"];
-const aseoDelayReasons = ["Falta de personal", "Dano de herramienta", "Exceso de suciedad", "Apoyo a otra area", "Otro"];
-const brixSuggestions = buildRangeOptions(brixRange.min, brixRange.max, brixRange.step);
-const tableColumns = [
-  "#",
-  "Fecha",
-  "Semana/Año",
-  "Hora",
-  "Cuarto",
-  "Lote",
-  "TA",
-  "P1",
-  "P2",
-  "P3",
-  "P4",
-  "P5",
-  "L1",
-  "L2",
-  "L3",
-  "L4",
-  "L5",
-  "A1",
-  "A2",
-  "A3",
-  "A4",
-  "A5",
-  "G1",
-  "G2",
-  "G3",
-  "G4",
-  "G5",
-  "B1",
-  "B2",
-  "B3",
-  "B4",
-  "B5",
-  "Estado",
-  "Realizado",
-  "Verificado",
-  "Obs.",
-  "Acción",
-];
-
-const prefreidoGroups = [
-  {
-    id: "tempFreidoraEntrada",
-    title: "Temperatura de la freidora entrada (150&deg;C-180&deg;C)",
-    icon: "bi-thermometer-high",
-    label: "Freidora entrada",
-    unit: "&deg;C",
-    min: 150,
-    max: 180,
-    step: 1,
-    count: 1,
-    columnPrefix: "TFE",
-    exportLabel: "Temperatura freidora entrada",
-  },
-  {
-    id: "tempFreidoraSalida",
-    title: "Temperatura de la freidora salida (150&deg;C-180&deg;C)",
-    icon: "bi-thermometer-high",
-    label: "Freidora salida",
-    unit: "&deg;C",
-    min: 150,
-    max: 180,
-    step: 1,
-    count: 1,
-    columnPrefix: "TFS",
-    exportLabel: "Temperatura freidora salida",
-  },
-  {
-    id: "tempTajadaSalidaFreidora",
-    title: "Temperatura de la tajada a la salida de la freidora (65&deg;C-80&deg;C)",
-    icon: "bi-thermometer-sun",
-    label: "Tajada freidora",
-    unit: "&deg;C",
-    min: 65,
-    max: 80,
-    step: 1,
-    columnPrefix: "TTF",
-    exportLabel: "Temperatura tajada salida freidora",
-  },
-  {
-    id: "tempTajadaSalidaDeollier",
-    title: "Temperatura de la tajada a la salida del deollier (40&deg;C-60&deg;C)",
-    icon: "bi-thermometer-half",
-    label: "Tajada deollier",
-    unit: "&deg;C",
-    min: 40,
-    max: 60,
-    step: 1,
-    columnPrefix: "TTD",
-    exportLabel: "Temperatura tajada salida deollier",
-  },
-  {
-    id: "color",
-    title: "Presentacion - Picking: Color",
-    icon: "bi-palette-fill",
-    label: "Color",
-    options: ["Optimo (amarillo a dorado)", "Aceptable (dorado intenso)", "No conforme (marron muy oscuro)"],
-    columnPrefix: "COL",
-    exportLabel: "Color",
-  },
-  {
-    id: "sabor",
-    title: "Presentacion - Picking: Sabor",
-    icon: "bi-cup-hot-fill",
-    label: "Sabor",
-    options: ["Dulce", "Amargo"],
-    columnPrefix: "SAB",
-    exportLabel: "Sabor",
-  },
-  {
-    id: "olor",
-    title: "Presentacion - Picking: Olor",
-    icon: "bi-wind",
-    label: "Olor",
-    options: ["Caracteristico", "No caracteristico"],
-    columnPrefix: "OLO",
-    exportLabel: "Olor",
-  },
-  {
-    id: "forma",
-    title: "Presentacion - Picking: Forma",
-    icon: "bi-aspect-ratio-fill",
-    label: "Forma",
-    options: ["Alargada", "Redonda"],
-    columnPrefix: "FOR",
-    exportLabel: "Forma",
-  },
-  {
-    id: "materialExtrano",
-    title: "Presentacion - Picking: Material extrano",
-    icon: "bi-search",
-    label: "Material extrano",
-    options: ["Ausencia", "Presencia"],
-    columnPrefix: "ME",
-    exportLabel: "Material extrano",
-  },
-];
-
-const iqfGroups = [
-  {
-    id: "referenciaIqf",
-    title: "Referencia de empaque",
-    icon: "bi-card-text",
-    label: "Referencia de empaque",
-    options: ["Finca feliz", "Nativofoods", "Vida Latina", "El viejo y la tierra", "El viejo Luis"],
-    count: 1,
-    columnPrefix: "REF",
-    exportLabel: "Referencia de empaque",
-  },
-  {
-    id: "presentacionIqf",
-    title: "Presentacion",
-    icon: "bi-box2-heart",
-    label: "Presentacion",
-    options: ["4 lb (1.81 Kg)", "5 lb (2.27 Kg)", "6 lb (2.72 Kg)"],
-    count: 1,
-    columnPrefix: "PRE",
-    exportLabel: "Presentacion",
-  },
-  {
-    id: "tempIqf",
-    title: "Temperatura del IQF (-10&deg;C o menor)",
-    icon: "bi-snow2",
-    label: "Temperatura IQF",
-    unit: "&deg;C",
-    max: -10,
-    optionMin: -40,
-    optionMax: -10,
-    step: 1,
-    count: 1,
-    columnPrefix: "TIQF",
-    exportLabel: "Temperatura IQF",
-  },
-  {
-    id: "tempEntradaIqf",
-    title: "Temperatura de entrada al IQF (40&deg;C-80&deg;C)",
-    icon: "bi-thermometer-high",
-    label: "Entrada tajada",
-    unit: "&deg;C",
-    min: 40,
-    max: 80,
-    step: 1,
-    columnPrefix: "TEI",
-    exportLabel: "Temperatura entrada IQF",
-  },
-  {
-    id: "tempSalidaIqf",
-    title: "Temperatura de salida de tajada (-1&deg;C a -5&deg;C)",
-    icon: "bi-thermometer-snow",
-    label: "Salida tajada",
-    unit: "&deg;C",
-    min: -5,
-    max: -1,
-    options: Array.from({ length: 40 }, (_, index) => (-(11 + index) / 10).toFixed(1)),
-    step: 0.1,
-    columnPrefix: "TSI",
-    exportLabel: "Temperatura salida IQF",
-  },
-  {
-    id: "brixSalidaIqf",
-    title: "Brix de salida IQF (30-32)",
-    icon: "bi-flower1",
-    label: "Brix salida",
-    min: 30,
-    max: 32,
-    step: 0.1,
-    columnPrefix: "BSI",
-    exportLabel: "Brix salida IQF",
-  },
-  {
-    id: "productoTerminado",
-    title: "Producto terminado - Peso neto",
-    icon: "bi-box-seam-fill",
-    label: "Peso neto",
-    unit: "kg",
-    inputType: "number",
-    step: 0.1,
-    columnPrefix: "PT",
-    exportLabel: "Producto terminado peso neto",
-  },
-  {
-    id: "verificacionLoteado",
-    title: "Verificacion de loteado",
-    icon: "bi-upc-scan",
-    label: "Loteado",
-    options: ["Conforme", "No conforme"],
-    count: 1,
-    columnPrefix: "VL",
-    exportLabel: "Loteado",
-  },
-  {
-    id: "selladoVertical",
-    title: "Sellado vertical",
-    icon: "bi-grip-vertical",
-    label: "Sellado vertical",
-    options: ["Conforme", "No conforme"],
-    count: 1,
-    columnPrefix: "SV",
-    exportLabel: "Sellado vertical",
-  },
-  {
-    id: "selladoHorizontal",
-    title: "Sellado horizontal",
-    icon: "bi-grip-horizontal",
-    label: "Sellado horizontal",
-    options: ["Conforme", "No conforme"],
-    count: 1,
-    columnPrefix: "SH",
-    exportLabel: "Sellado horizontal",
-  },
-  {
-    id: "materialExtranoIqf",
-    title: "Validacion de materiales extranos",
-    icon: "bi-search",
-    label: "Material extrano",
-    options: ["Ausente", "Presente"],
-    count: 1,
-    columnPrefix: "ME",
-    exportLabel: "Material extrano",
-  },
-  {
-    id: "detectorMetalesIqf",
-    title: "Verificacion de detector de metales",
-    icon: "bi-magnet-fill",
-    label: "Detector de metales",
-    options: ["Ausencia", "Presencia"],
-    count: 1,
-    columnPrefix: "DM",
-    exportLabel: "Detector de metales",
-  },
-  {
-    id: "arteIqf",
-    title: "Arte",
-    icon: "bi-palette-fill",
-    label: "Arte",
-    options: ["Conforme", "No conforme"],
-    count: 1,
-    columnPrefix: "AR",
-    exportLabel: "Arte",
-  },
-  {
-    id: "resistenciaIqf",
-    title: "Resistencia",
-    icon: "bi-shield-check",
-    label: "Resistencia",
-    options: ["Conforme", "No conforme"],
-    count: 1,
-    columnPrefix: "RS",
-    exportLabel: "Resistencia",
-  },
-];
-
-const reciboGroups = [
-  {
-    id: "origen",
-    title: "Datos de ingreso",
-    icon: "bi-truck",
-    label: "Origen",
-    inputType: "text",
-    columnLabel: "Origen",
-  },
-  {
-    id: "placa",
-    title: "Datos de ingreso",
-    icon: "bi-truck",
-    label: "Placa",
-    inputType: "text",
-    columnLabel: "Placa",
-  },
-  {
-    id: "estadoLimpiezaVehiculo",
-    title: "Condiciones del vehiculo y conductor",
-    icon: "bi-shield-check",
-    label: "Estado de limpieza vehiculo",
-    options: binaryOptions,
-    allowOther: false,
-    columnLabel: "Estado limpieza vehiculo",
-  },
-  {
-    id: "libreContaminacionCruzada",
-    title: "Condiciones del vehiculo y conductor",
-    icon: "bi-shield-check",
-    label: "Libre contaminacion cruzada",
-    options: binaryOptions,
-    allowOther: false,
-    columnLabel: "Libre contaminacion cruzada",
-  },
-  {
-    id: "higieneConductor",
-    title: "Condiciones del vehiculo y conductor",
-    icon: "bi-shield-check",
-    label: "Higiene del conductor",
-    options: binaryOptions,
-    allowOther: false,
-    columnLabel: "Higiene del conductor",
-  },
-  {
-    id: "documentosVehiculoConductor",
-    title: "Condiciones del vehiculo y conductor",
-    icon: "bi-shield-check",
-    label: "Documentos vehiculo / conductor",
-    options: binaryOptions,
-    allowOther: false,
-    columnLabel: "Documentos vehiculo / conductor",
-  },
-  {
-    id: "proveedor",
-    title: "Proveedor y cosecha",
-    icon: "bi-person-lines-fill",
-    label: "Proveedor",
-    inputType: "text",
-    columnLabel: "Proveedor",
-  },
-  {
-    id: "semanaCosecha",
-    title: "Proveedor y cosecha",
-    icon: "bi-person-lines-fill",
-    label: "Semana cosecha",
-    inputType: "text",
-    defaultValue: "10",
-    readonly: true,
-    columnLabel: "Semana cosecha",
-  },
-  {
-    id: "pesoVerde",
-    title: "Mediciones de platano verde",
-    icon: "bi-rulers",
-    label: "Peso verde (g)",
-    inputType: "number",
-    step: 0.1,
-    columnLabel: "Peso verde (g)",
-  },
-  {
-    id: "longitudRecibo",
-    title: "Mediciones de platano verde",
-    icon: "bi-rulers",
-    label: "Longitud (cm)",
-    inputType: "number",
-    step: 0.1,
-    columnLabel: "Longitud (cm)",
-  },
-  {
-    id: "diametro",
-    title: "Mediciones de platano verde",
-    icon: "bi-rulers",
-    label: "Diametro (cm)",
-    inputType: "number",
-    step: 0.1,
-    columnLabel: "Diametro (cm)",
-  },
-  {
-    id: "plaga",
-    title: "Condiciones organolepticas",
-    icon: "bi-search",
-    label: "Plaga (A/P)",
-    options: ["Ausencia", "Presencia"],
-    allowOther: false,
-    columnLabel: "Plaga (A/P)",
-  },
-  {
-    id: "brixRecibo",
-    title: "Condiciones organolepticas",
-    icon: "bi-search",
-    label: "Brix",
-    inputType: "number",
-    step: 0.1,
-    columnLabel: "Brix",
-  },
-  {
-    id: "olorRecibo",
-    title: "Condiciones organolepticas",
-    icon: "bi-search",
-    label: "Olor",
-    options: ["Caracteristico", "No caracteristico"],
-    allowOther: false,
-    columnLabel: "Olor",
-  },
-  {
-    id: "colorRecibo",
-    title: "Condiciones organolepticas",
-    icon: "bi-search",
-    label: "Color",
-    options: ["Verde", "Amarillo", "Negro"],
-    allowOther: false,
-    columnLabel: "Color",
-  },
-];
-
-const maduracionGroups = [
-  {
-    id: "seccionMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Seccion",
-    options: ["A", "B", "C", "D"],
-    allowOther: false,
-  },
-  {
-    id: "posicionMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Posicion",
-    options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
-    allowOther: false,
-  },
-  {
-    id: "tempCuartoMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Temperatura cuarto de maduracion (24&deg;C-27&deg;C)",
-    inputType: "number",
-    min: 24,
-    max: 27,
-    step: 0.1,
-  },
-  {
-    id: "humedadCuartoMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Humedad relativa cuarto de maduracion (80%Hr-90%Hr)",
-    inputType: "number",
-    min: 80,
-    max: 90,
-    step: 0.1,
-  },
-  {
-    id: "brixPlatanoMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Brix platano",
-    inputType: "number",
-    step: 0.1,
-  },
-  {
-    id: "pesoPlatanoMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Peso del platano (g)",
-    inputType: "number",
-    step: 0.1,
-  },
-  {
-    id: "saborMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Sabor",
-    options: ["Dulce", "Amargo"],
-    allowOther: false,
-  },
-  {
-    id: "olorMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Olor",
-    options: ["Caracteristico", "No caracteristico"],
-    allowOther: false,
-  },
-  {
-    id: "colorMaduracion",
-    title: "Seguimiento de maduracion",
-    icon: "bi-graph-up-arrow",
-    label: "Color",
-    options: ["Verde", "Amarillo", "Negro"],
-    allowOther: false,
-  },
-];
-
-const formatTitles = {
-  porcionado: "Formato de control porcionado",
-  prefreido: "Formato de control prefreido, deollier, picking",
-  iqf: "Formato de control IQF y empaque",
-  maduracion: "Formato de seguimiento de maduracion",
-  recibo: "Formato de seguimiento de recibo",
-  novedades: "Formato de novedades",
-  aseo: "Evaluacion de Aseo",
-};
-
-const state = {
+var state = {
   records: [],
   calendarType: "gregorian",
   selectedDate: "",
@@ -638,9 +46,9 @@ const state = {
   aseoDraftArea: "",
 };
 
-const elements = {};
-let supabaseClient = null;
-const backgroundSyncState = {
+var elements = {};
+var supabaseClient = null;
+var backgroundSyncState = {
   active: new Set(),
   queued: new Map(),
   timers: new Map(),
@@ -757,11 +165,13 @@ function bindEvents() {
     }
   });
   elements.form.addEventListener("input", (event) => {
+    saveCurrentFormDraft();
     if (state.activeFormatId === "aseo") {
       handleAseoFormDraftEvent(event);
     }
   });
   elements.form.addEventListener("change", (event) => {
+    saveCurrentFormDraft();
     if (state.activeFormatId === "aseo") {
       handleAseoFormDraftEvent(event);
       if (event.target.id !== "cuartoMaduracion") updateAseoCalculations();
@@ -771,6 +181,7 @@ function bindEvents() {
   elements.btnShareFile.addEventListener("click", shareRecordsFile);
   elements.btnClearForm.addEventListener("click", () => {
     if (state.activeFormatId === "aseo") clearAseoDraft(getCurrentAseoArea());
+    clearCurrentFormDraft();
     clearFormInputs();
   });
   elements.btnClearRecords.addEventListener("click", clearRecords);
@@ -796,289 +207,16 @@ function bindEvents() {
   });
 
   window.addEventListener("beforeunload", () => {
+    saveCurrentFormDraft();
     if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
   });
-}
 
-function isCloudConfigured() {
-  return Boolean(CLOUD_CONFIG.supabaseUrl && CLOUD_CONFIG.supabaseAnonKey && window.supabase);
-}
-
-async function initCloudAuth() {
-  state.cloudEnabled = true;
-  supabaseClient = window.supabase.createClient(CLOUD_CONFIG.supabaseUrl, CLOUD_CONFIG.supabaseAnonKey);
-  showAuthMessage("");
-
-  const { data } = await supabaseClient.auth.getSession();
-  if (data.session) {
-    await handleSignedIn(data.session.user);
-  } else {
-    showAuth();
-  }
-
-  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
-    if (session?.user) {
-      await handleSignedIn(session.user);
-    } else {
-      state.authUser = null;
-      state.authProfile = null;
-      state.records = [];
-      renderAuthHeader();
-      showAuth();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      saveCurrentFormDraft();
+      if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
     }
   });
-}
-
-async function handleSignedIn(user) {
-  state.authUser = user;
-  state.authProfile = await ensureProfile(user);
-
-  if (state.authProfile?.disabled) {
-    await supabaseClient.auth.signOut();
-    showAuthMessage("Este usuario esta desactivado.");
-    return;
-  }
-
-  showApp();
-  renderAuthHeader();
-  await initializeAppView();
-  queueAllFormatSyncs({ full: true, renderActive: false, delay: 2500 });
-  if (isSuperUser()) await loadAdminUsers();
-}
-
-async function ensureProfile(user) {
-  const { data: existing } = await supabaseClient
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (existing) return existing;
-
-  const profile = {
-    id: user.id,
-    email: user.email,
-    role: "user",
-  };
-  const { data, error } = await supabaseClient.from("profiles").insert(profile).select("*").single();
-  if (error) {
-    showAuthMessage("No se pudo crear el perfil del usuario.");
-    return profile;
-  }
-
-  return data;
-}
-
-function showAuth() {
-  elements.authShell.hidden = false;
-  elements.appShell.hidden = true;
-  showAuthLanding();
-}
-
-function showApp() {
-  elements.authShell.hidden = true;
-  elements.appShell.hidden = false;
-}
-
-function showAuthLanding() {
-  state.authMode = "login";
-  elements.authLanding.hidden = false;
-  elements.authPanel.hidden = true;
-  showAuthMessage("");
-  elements.authForm?.reset();
-}
-
-function showAuthForm(mode) {
-  state.authMode = mode;
-  elements.authLanding.hidden = true;
-  elements.authPanel.hidden = false;
-  elements.authPanelTitle.textContent = mode === "register" ? "Crear cuenta" : "Iniciar sesion";
-  elements.authPanelSubtitle.textContent = mode === "register"
-    ? "Registra un operador con usuario o correo y contrasena."
-    : `Ingresa con tu usuario. El super usuario puede entrar como ${SUPER_USER_NAME}.`;
-  elements.btnAuthSubmit.textContent = mode === "register" ? "Crear cuenta" : "Ingresar";
-  elements.authPassword.autocomplete = mode === "register" ? "new-password" : "current-password";
-  showAuthMessage("");
-  elements.authForm.reset();
-  elements.authEmail.focus();
-}
-
-async function handleAuthSubmit(event) {
-  event.preventDefault();
-  if (!supabaseClient) {
-    showAuthMessage("Configura Supabase en config.js antes de usar autenticacion.");
-    return;
-  }
-
-  if (state.authMode === "register") {
-    await registerUser();
-    return;
-  }
-
-  await signInUser();
-}
-
-async function signInUser(event) {
-  showAuthMessage("Validando acceso...");
-  const email = resolveAuthEmail(elements.authEmail.value);
-  if (!email) {
-    showAuthMessage("Escribe un usuario valido.");
-    return;
-  }
-
-  const { error } = await supabaseClient.auth.signInWithPassword({
-    email,
-    password: elements.authPassword.value,
-  });
-
-  showAuthMessage(error ? `Usuario o contrasena incorrectos: ${error.message}` : "");
-}
-
-async function registerUser() {
-  showAuthMessage("Creando usuario...");
-  const username = normalizeUsername(elements.authEmail.value);
-  const email = resolveAuthEmail(elements.authEmail.value);
-  if (!email) {
-    showAuthMessage("Escribe un usuario valido.");
-    return;
-  }
-
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password: elements.authPassword.value,
-    options: {
-      data: { username },
-    },
-  });
-
-  if (error) {
-    showAuthMessage(`No se pudo crear el usuario: ${error.message}`);
-    return;
-  }
-
-  showAuthMessage(data.session
-    ? "Usuario creado. Entrando..."
-    : "Usuario creado. Si no puedes entrar, desactiva Confirm email en Supabase.");
-}
-
-function resolveAuthEmail(identifier) {
-  const value = identifier.trim().toLowerCase();
-  if (value === SUPER_USER_NAME.toLowerCase()) return SUPER_USER_EMAIL;
-  if (value.includes("@")) return value;
-
-  const username = normalizeUsername(value);
-  return username ? `${username}@${USERNAME_DOMAIN}` : "";
-}
-
-function normalizeUsername(value) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]/g, "");
-}
-
-async function signOutUser() {
-  if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
-}
-
-function renderAuthHeader() {
-  const hasUser = Boolean(state.authUser);
-  elements.userControls.hidden = !hasUser;
-  elements.adminPanel.hidden = !isSuperUser();
-  if (hasUser) {
-    elements.currentUserLabel.textContent = `${getUserDisplayName()}${isSuperUser() ? " - Super usuario" : ""}`;
-  }
-}
-
-function showAuthMessage(message) {
-  if (elements.authMessage) elements.authMessage.textContent = message;
-}
-
-function isSuperUser() {
-  return Boolean(state.authUser && state.authProfile?.role === "super");
-}
-
-function getUserDisplayName(user = state.authUser) {
-  if (!user?.email) return "Usuario";
-  if (user.email.toLowerCase() === SUPER_USER_EMAIL.toLowerCase()) return SUPER_USER_NAME;
-
-  const localUsername = `@${USERNAME_DOMAIN}`.toLowerCase();
-  if (user.email.toLowerCase().endsWith(localUsername)) return user.email.split("@")[0];
-
-  return user.email;
-}
-
-async function loadAdminUsers() {
-  if (!isSuperUser()) return;
-
-  const { data, error } = await supabaseClient
-    .from("profiles")
-    .select("id,email,role,disabled,created_at")
-    .order("email");
-
-  if (error) {
-    elements.adminUsersBody.innerHTML = `<tr><td colspan="4">No se pudieron cargar los usuarios.</td></tr>`;
-    return;
-  }
-
-  elements.adminUsersBody.innerHTML = data.map((profile) => {
-    const isCurrent = profile.id === state.authUser.id;
-    const action = isCurrent ? "-" : renderAdminUserActions(profile);
-
-    return `
-      <tr>
-        <td>${escapeHtml(getUserDisplayName(profile))}</td>
-        <td>${escapeHtml(profile.role)}</td>
-        <td>${profile.disabled ? "Bloqueado" : "Activo"}</td>
-        <td>${action}</td>
-      </tr>
-    `;
-  }).join("");
-}
-
-function renderAdminUserActions(profile) {
-  const blockButton = profile.disabled
-    ? ""
-    : `<button class="btn-outline-danger" type="button" data-disable-user="${profile.id}">Bloquear</button>`;
-
-  return `
-    <div class="admin-actions">
-      ${blockButton}
-      <button class="btn-delete" type="button" data-delete-user="${profile.id}">Eliminar</button>
-    </div>
-  `;
-}
-
-async function disableUser(userId) {
-  if (!isSuperUser()) return;
-  if (!window.confirm("Deseas bloquear el acceso de este usuario?")) return;
-
-  const { error } = await supabaseClient.from("profiles").update({ disabled: true }).eq("id", userId);
-  if (error) {
-    window.alert("No se pudo bloquear el usuario.");
-    return;
-  }
-
-  await loadAdminUsers();
-}
-
-async function deleteUser(userId) {
-  if (!isSuperUser()) return;
-  if (!window.confirm("Deseas eliminar definitivamente este usuario y sus registros?")) return;
-
-  const { error } = await supabaseClient.rpc("delete_app_user", { target_user_id: userId });
-  if (error) {
-    const needsSqlUpdate = error.message?.includes("delete_app_user") || error.message?.includes("schema cache");
-    const helpText = needsSqlUpdate
-      ? "\n\nDebes ejecutar el supabase-schema.sql actualizado en Supabase SQL Editor y esperar unos segundos."
-      : "";
-    window.alert(`No se pudo eliminar el usuario.${helpText}\n\nDetalle: ${error.message}`);
-    return;
-  }
-
-  await loadAdminUsers();
-  queueFormatSync(state.activeFormatId, { delay: 1000 });
 }
 
 async function initializeAppView() {
@@ -1090,6 +228,7 @@ async function initializeAppView() {
 }
 
 async function showFormatView(formatId) {
+  saveCurrentFormDraft();
   if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
   state.activeFormatId = formatId;
   elements.formatViewTitle.textContent = formatTitles[formatId];
@@ -1109,6 +248,7 @@ async function showFormatView(formatId) {
   applyRememberedGeneralInfo();
   applyReciboFirstRecordInfo();
   applyMaduracionFirstRecordInfo();
+  loadCurrentFormDraft();
   elements.mainMenu.hidden = true;
   elements.porcionadoView.hidden = false;
   elements.porcionadoView.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1133,6 +273,7 @@ function updateFormatSpecificFields() {
 }
 
 function showMainMenu() {
+  saveCurrentFormDraft();
   if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
   elements.porcionadoView.hidden = true;
   elements.mainMenu.hidden = false;
@@ -1187,615 +328,6 @@ function renderMeasurementFields() {
 
   bindMeasurementInputEvents();
 
-}
-
-function renderAseoFields() {
-  const today = toDateInputValue(new Date());
-
-  return `
-    <h2 class="section-title">
-      <i class="bi bi-people-fill" aria-hidden="true"></i>
-      Integrantes del grupo
-    </h2>
-    <div class="aseo-group-panel">
-      <div class="aseo-member-list" id="aseoMembersList"></div>
-      <div class="aseo-member-form">
-        <input class="form-control" type="text" id="aseoMemberName" placeholder="Nombre del integrante">
-        <button class="btn-clear-form" type="button" id="btnAseoAddMember">
-          <i class="bi bi-person-plus-fill" aria-hidden="true"></i>
-          Agregar integrante
-        </button>
-      </div>
-    </div>
-
-    <h2 class="section-title">
-      <i class="bi bi-clock-history" aria-hidden="true"></i>
-      Tiempos y asistencia
-    </h2>
-    <div class="measurement-grid">
-      <div class="measure-item">
-        <label for="aseoFecha">Fecha</label>
-        <input class="form-control measure-input" type="date" id="aseoFecha" value="${today}" required>
-      </div>
-      <div class="measure-item">
-        <label for="aseoHoraInicio">Hora de inicio</label>
-        <input class="form-control measure-input" type="time" id="aseoHoraInicio" required>
-        <button class="btn-clear-form aseo-inline-button" type="button" id="btnAseoStart">Registrar inicio</button>
-      </div>
-      <div class="measure-item">
-        <label for="aseoHoraFin">Hora de finalizacion</label>
-        <input class="form-control measure-input" type="time" id="aseoHoraFin" required>
-        <button class="btn-clear-form aseo-inline-button" type="button" id="btnAseoEnd">Registrar fin</button>
-      </div>
-      <div class="measure-item">
-        <label>Tiempo real</label>
-        <output class="aseo-output" id="aseoTiempoReal">-</output>
-      </div>
-      <div class="measure-item">
-        <label for="aseoAusencias">Hubo ausencias?</label>
-        <select class="form-select measure-input" id="aseoAusencias" required>
-          <option value="No">No</option>
-          <option value="Si">Si</option>
-        </select>
-      </div>
-      <div class="measure-item" id="aseoAbsentCountWrap" hidden>
-        <label for="aseoCantidadAusentes">Cantidad de ausentes</label>
-        <select class="form-select measure-input" id="aseoCantidadAusentes">
-          <option value="">Seleccionar</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-        </select>
-      </div>
-    </div>
-    <div class="aseo-absent-panel" id="aseoAbsentPanel" hidden>
-      <label class="form-label">Personas ausentes</label>
-      <div class="aseo-check-list" id="aseoAbsentList"></div>
-    </div>
-
-    <h2 class="section-title">
-      <i class="bi bi-ui-checks" aria-hidden="true"></i>
-      Criterios de evaluacion
-    </h2>
-    <div class="measurement-grid">
-      <div class="measure-item">
-        <label for="aseoCalidad">Calidad del aseo</label>
-        ${renderAseoSelect("aseoCalidad")}
-      </div>
-      <div class="measure-item">
-        <label for="aseoHerramientas">Uso adecuado de herramientas e insumos</label>
-        ${renderAseoSelect("aseoHerramientas")}
-      </div>
-      <div class="measure-item" id="aseoDelayReasonWrap" hidden>
-        <label for="aseoMotivoDemora">Motivo de demora</label>
-        <select class="form-select measure-input" id="aseoMotivoDemora">
-          <option value="">Seleccionar</option>
-          ${aseoDelayReasons.map((reason) => `<option value="${reason}">${reason}</option>`).join("")}
-        </select>
-      </div>
-      <div class="measure-item" id="aseoDelayOtherWrap" hidden>
-        <label for="aseoMotivoDemoraOtro">Otro motivo</label>
-        <input class="form-control measure-input" type="text" id="aseoMotivoDemoraOtro">
-      </div>
-    </div>
-
-    <div class="aseo-score-panel" id="aseoScorePanel">
-      <div><span>Puntaje tiempo</span><strong id="aseoPuntajeTiempo">0</strong></div>
-      <div><span>Puntaje calidad</span><strong id="aseoPuntajeCalidad">0</strong></div>
-      <div><span>Puntaje asistencia</span><strong id="aseoPuntajeAsistencia">100</strong></div>
-      <div><span>Puntaje herramientas</span><strong id="aseoPuntajeHerramientas">0</strong></div>
-      <div><span>Nota final</span><strong id="aseoNotaFinal">0.00</strong></div>
-      <div><span>Clasificacion</span><strong><span class="status-badge status-danger" id="aseoClasificacion">Requiere mejora</span></strong></div>
-    </div>
-
-    <h2 class="section-title">
-      <i class="bi bi-funnel-fill" aria-hidden="true"></i>
-      Historico e indicadores
-    </h2>
-    <div class="aseo-filter-grid">
-      <input class="form-control" type="date" id="aseoFilterFecha" aria-label="Filtrar por fecha">
-      <select class="form-select" id="aseoFilterArea" aria-label="Filtrar por area">
-        <option value="">Todas las areas</option>
-        ${aseoAreaOptions.map((area) => `<option value="${area}">${area}</option>`).join("")}
-      </select>
-      <input class="form-control" type="text" id="aseoFilterLider" placeholder="Lider">
-      <input class="form-control" type="text" id="aseoFilterIntegrante" placeholder="Integrante">
-      <select class="form-select" id="aseoFilterClasificacion" aria-label="Filtrar por clasificacion">
-        <option value="">Todas las clasificaciones</option>
-        <option value="Excelente">Excelente</option>
-        <option value="Bueno">Bueno</option>
-        <option value="Aceptable">Aceptable</option>
-        <option value="Requiere mejora">Requiere mejora</option>
-      </select>
-    </div>
-    <div class="aseo-indicators" id="aseoIndicators"></div>
-  `;
-}
-
-function renderAseoSelect(id) {
-  return `
-    <select class="form-select measure-input" id="${id}" required>
-      <option value="">Seleccionar</option>
-      ${aseoComplianceOptions.map((option) => `<option value="${option}">${option}</option>`).join("")}
-    </select>
-  `;
-}
-
-function handleAseoDynamicClick(event) {
-  if (state.activeFormatId !== "aseo") return;
-
-  const addButton = event.target.closest("#btnAseoAddMember");
-  if (addButton) {
-    addAseoMember();
-    return;
-  }
-
-  const startButton = event.target.closest("#btnAseoStart");
-  if (startButton) {
-    setAseoTimestamp("aseoHoraInicio");
-    return;
-  }
-
-  const endButton = event.target.closest("#btnAseoEnd");
-  if (endButton) {
-    setAseoTimestamp("aseoHoraFin");
-    return;
-  }
-
-  const deleteButton = event.target.closest("[data-aseo-delete-member]");
-  if (deleteButton) {
-    deleteAseoMember(deleteButton.dataset.aseoDeleteMember);
-    return;
-  }
-
-  const editButton = event.target.closest("[data-aseo-edit-member]");
-  if (editButton) editAseoMember(editButton.dataset.aseoEditMember);
-}
-
-function handleAseoDynamicChange(event) {
-  if (state.activeFormatId !== "aseo") return;
-
-  if (event.target.id === "cuartoMaduracion") {
-    renderAseoMembers();
-  }
-
-  if (event.target.matches("[data-aseo-leader]")) {
-    setAseoLeader(event.target.value);
-  }
-
-  updateAseoCalculations();
-
-  if (event.target.id?.startsWith("aseoFilter")) {
-    renderRecords();
-  }
-}
-
-function handleAseoDynamicInput(event) {
-  if (state.activeFormatId !== "aseo") return;
-
-  updateAseoCalculations();
-
-  if (event.target.id?.startsWith("aseoFilter")) {
-    renderRecords();
-  }
-}
-
-function setAseoTimestamp(targetId) {
-  const now = new Date();
-  const dateInput = document.getElementById("aseoFecha");
-  const target = document.getElementById(targetId);
-  if (dateInput) dateInput.value = toDateInputValue(now);
-  if (target) target.value = now.toTimeString().slice(0, 5);
-  saveAseoDraft(getCurrentAseoArea());
-  updateAseoCalculations();
-}
-
-function getAseoGroups() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(ASEO_GROUPS_STORAGE_KEY)) || {};
-    return aseoAreaOptions.reduce((groups, area) => {
-      groups[area] = {
-        members: Array.isArray(saved[area]?.members) ? saved[area].members : [],
-        leader: saved[area]?.leader || "",
-      };
-      return groups;
-    }, {});
-  } catch {
-    return aseoAreaOptions.reduce((groups, area) => {
-      groups[area] = { members: [], leader: "" };
-      return groups;
-    }, {});
-  }
-}
-
-function saveAseoGroups(groups) {
-  localStorage.setItem(ASEO_GROUPS_STORAGE_KEY, JSON.stringify(groups));
-}
-
-function getCurrentAseoArea() {
-  return getValue("cuartoMaduracion");
-}
-
-function restoreLastAseoArea() {
-  const savedArea = localStorage.getItem(ASEO_ACTIVE_AREA_STORAGE_KEY);
-  if (savedArea && aseoAreaOptions.includes(savedArea)) {
-    elements.cuartoMaduracion.value = savedArea;
-  }
-}
-
-function getCurrentAseoGroup() {
-  const groups = getAseoGroups();
-  return groups[getCurrentAseoArea()] || { members: [], leader: "" };
-}
-
-function handleAseoAreaChange() {
-  const previousArea = state.aseoDraftArea;
-  const pendingDraft = previousArea ? null : collectAseoDraftValues();
-  if (previousArea) saveAseoDraft(previousArea);
-
-  state.aseoDraftArea = getCurrentAseoArea();
-  if (state.aseoDraftArea) localStorage.setItem(ASEO_ACTIVE_AREA_STORAGE_KEY, state.aseoDraftArea);
-  if (state.aseoDraftArea && hasAseoDraftValues(pendingDraft)) {
-    saveAseoDraftValues(state.aseoDraftArea, pendingDraft);
-  }
-  clearAseoEvaluationFields();
-  renderAseoMembers();
-  loadAseoDraftForArea(state.aseoDraftArea);
-  updateAseoCalculations();
-}
-
-function handleAseoFormDraftEvent(event) {
-  if (event.target.id === "cuartoMaduracion") return;
-  if (event.target.id?.startsWith("aseoFilter")) return;
-  saveAseoDraft(getCurrentAseoArea());
-}
-
-function getAseoDrafts() {
-  try {
-    return JSON.parse(localStorage.getItem(ASEO_DRAFTS_STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function saveAseoDraft(area = getCurrentAseoArea()) {
-  if (!area) return;
-
-  saveAseoDraftValues(area, collectAseoDraftValues());
-}
-
-function saveAseoDraftValues(area, values) {
-  if (!area) return;
-
-  const drafts = getAseoDrafts();
-  drafts[area] = values;
-  localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
-}
-
-function loadAseoDraftForArea(area = getCurrentAseoArea()) {
-  if (!area) {
-    clearAseoEvaluationFields();
-    return;
-  }
-
-  const draft = getAseoDrafts()[area];
-  if (!draft) {
-    clearAseoEvaluationFields();
-    return;
-  }
-
-  setAseoFieldValue("aseoFecha", draft.fecha || toDateInputValue(new Date()));
-  setAseoFieldValue("aseoHoraInicio", draft.horaInicio || "");
-  setAseoFieldValue("aseoHoraFin", draft.horaFin || "");
-  setAseoFieldValue("aseoAusencias", draft.ausencias || "No");
-  setAseoFieldValue("aseoCantidadAusentes", draft.cantidadAusentes || "");
-  setAseoFieldValue("aseoCalidad", draft.calidad || "");
-  setAseoFieldValue("aseoHerramientas", draft.herramientas || "");
-  setAseoFieldValue("aseoMotivoDemora", draft.motivoDemora || "");
-  setAseoFieldValue("aseoMotivoDemoraOtro", draft.motivoDemoraOtro || "");
-  setAseoFieldValue("observaciones", draft.observaciones || "");
-  setAseoFieldValue("realizadoPor", draft.realizadoPor || "");
-  setAseoFieldValue("verificadoPor", draft.verificadoPor || "");
-
-  document.querySelectorAll("[data-aseo-absent]").forEach((input) => {
-    input.checked = (draft.ausentes || []).includes(input.value);
-  });
-}
-
-function clearAseoDraft(area = getCurrentAseoArea()) {
-  if (!area) return;
-
-  const drafts = getAseoDrafts();
-  delete drafts[area];
-  localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
-}
-
-function collectAseoDraftValues() {
-  return {
-    fecha: getValue("aseoFecha"),
-    horaInicio: getValue("aseoHoraInicio"),
-    horaFin: getValue("aseoHoraFin"),
-    ausencias: getValue("aseoAusencias") || "No",
-    cantidadAusentes: getValue("aseoCantidadAusentes"),
-    ausentes: getSelectedAseoAbsentees(),
-    calidad: getValue("aseoCalidad"),
-    herramientas: getValue("aseoHerramientas"),
-    motivoDemora: getValue("aseoMotivoDemora"),
-    motivoDemoraOtro: getValue("aseoMotivoDemoraOtro"),
-    observaciones: getValue("observaciones"),
-    realizadoPor: getValue("realizadoPor"),
-    verificadoPor: getValue("verificadoPor"),
-  };
-}
-
-function hasAseoDraftValues(draft) {
-  if (!draft) return false;
-
-  return [
-    draft.horaInicio,
-    draft.horaFin,
-    draft.cantidadAusentes,
-    draft.calidad,
-    draft.herramientas,
-    draft.motivoDemora,
-    draft.motivoDemoraOtro,
-    draft.observaciones,
-  ].some(Boolean) || (draft.ausentes || []).length > 0;
-}
-
-function clearAseoEvaluationFields() {
-  const today = toDateInputValue(new Date());
-  [
-    "aseoHoraInicio",
-    "aseoHoraFin",
-    "aseoCantidadAusentes",
-    "aseoCalidad",
-    "aseoHerramientas",
-    "aseoMotivoDemora",
-    "aseoMotivoDemoraOtro",
-    "observaciones",
-  ].forEach((id) => setAseoFieldValue(id, ""));
-
-  setAseoFieldValue("aseoFecha", today);
-  setAseoFieldValue("aseoAusencias", "No");
-  document.querySelectorAll("[data-aseo-absent]").forEach((input) => {
-    input.checked = false;
-  });
-}
-
-function setAseoFieldValue(id, value) {
-  const input = document.getElementById(id);
-  if (input) input.value = value;
-}
-
-function renderAseoMembers() {
-  const list = document.getElementById("aseoMembersList");
-  const absentList = document.getElementById("aseoAbsentList");
-  if (!list || !absentList) return;
-
-  const area = getCurrentAseoArea();
-  const group = getCurrentAseoGroup();
-  const selectedAbsentees = getSelectedAseoAbsentees();
-  if (!area) {
-    list.innerHTML = `<p class="empty-state mb-0">Seleccione un area para gestionar integrantes.</p>`;
-    absentList.innerHTML = "";
-    return;
-  }
-
-  if (!group.members.length) {
-    list.innerHTML = `<p class="empty-state mb-0">No hay integrantes asignados a esta area.</p>`;
-  } else {
-    list.innerHTML = group.members.map((member) => `
-      <div class="aseo-member-row">
-        <label>
-          <input type="radio" name="aseoLeader" value="${escapeHtml(member)}" data-aseo-leader ${group.leader === member ? "checked" : ""}>
-          <span>${escapeHtml(member)}</span>
-          ${group.leader === member ? '<em>Lider</em>' : ""}
-        </label>
-        <div>
-          <button class="btn-delete" type="button" data-aseo-edit-member="${escapeHtml(member)}">
-            <i class="bi bi-pencil" aria-hidden="true"></i>
-          </button>
-          <button class="btn-delete" type="button" data-aseo-delete-member="${escapeHtml(member)}">
-            <i class="bi bi-trash" aria-hidden="true"></i>
-          </button>
-        </div>
-      </div>
-    `).join("");
-  }
-
-  absentList.innerHTML = group.members.map((member) => `
-    <label class="aseo-check-item">
-      <input type="checkbox" value="${escapeHtml(member)}" data-aseo-absent ${selectedAbsentees.includes(member) ? "checked" : ""}>
-      <span>${escapeHtml(member)}</span>
-    </label>
-  `).join("");
-  updateAseoCalculations();
-}
-
-function addAseoMember() {
-  const input = document.getElementById("aseoMemberName");
-  const area = getCurrentAseoArea();
-  const name = input?.value.trim();
-  if (!area) {
-    window.alert("Seleccione un area antes de agregar integrantes.");
-    return;
-  }
-  if (!name) return;
-
-  const groups = getAseoGroups();
-  const group = groups[area];
-  if (!group.members.includes(name)) group.members.push(name);
-  if (!group.leader) group.leader = name;
-  saveAseoGroups(groups);
-  input.value = "";
-  renderAseoMembers();
-}
-
-function editAseoMember(currentName) {
-  const area = getCurrentAseoArea();
-  const nextName = window.prompt("Editar integrante", currentName)?.trim();
-  if (!area || !nextName) return;
-
-  const groups = getAseoGroups();
-  const group = groups[area];
-  group.members = group.members.map((member) => member === currentName ? nextName : member);
-  if (group.leader === currentName) group.leader = nextName;
-  saveAseoGroups(groups);
-  renderAseoMembers();
-}
-
-function deleteAseoMember(memberName) {
-  const area = getCurrentAseoArea();
-  if (!area) return;
-
-  const groups = getAseoGroups();
-  const group = groups[area];
-  group.members = group.members.filter((member) => member !== memberName);
-  if (group.leader === memberName) group.leader = group.members[0] || "";
-  saveAseoGroups(groups);
-  renderAseoMembers();
-}
-
-function setAseoLeader(memberName) {
-  const area = getCurrentAseoArea();
-  if (!area) return;
-
-  const groups = getAseoGroups();
-  groups[area].leader = memberName;
-  saveAseoGroups(groups);
-  renderAseoMembers();
-}
-
-function updateAseoCalculations() {
-  const data = calculateAseoEvaluation();
-  const hasAbsences = getValue("aseoAusencias") === "Si";
-  const absentCountWrap = document.getElementById("aseoAbsentCountWrap");
-  const absentPanel = document.getElementById("aseoAbsentPanel");
-  const delayReasonWrap = document.getElementById("aseoDelayReasonWrap");
-  const delayOtherWrap = document.getElementById("aseoDelayOtherWrap");
-  const delaySelect = document.getElementById("aseoMotivoDemora");
-  const delayOther = document.getElementById("aseoMotivoDemoraOtro");
-  const absentCount = document.getElementById("aseoCantidadAusentes");
-
-  if (absentCountWrap) absentCountWrap.hidden = !hasAbsences;
-  if (absentPanel) absentPanel.hidden = !hasAbsences;
-  if (absentCount) absentCount.required = hasAbsences;
-
-  const hasDelay = data.realMinutes > data.targetMinutes;
-  if (delayReasonWrap) delayReasonWrap.hidden = !hasDelay;
-  if (delaySelect) delaySelect.required = hasDelay;
-  if (delayOtherWrap) delayOtherWrap.hidden = !(hasDelay && delaySelect?.value === "Otro");
-  if (delayOther) delayOther.required = hasDelay && delaySelect?.value === "Otro";
-
-  setText("aseoTiempoReal", data.realTimeLabel);
-  setText("aseoPuntajeTiempo", data.timeScore);
-  setText("aseoPuntajeCalidad", data.qualityScore);
-  setText("aseoPuntajeAsistencia", data.attendanceScore);
-  setText("aseoPuntajeHerramientas", data.toolsScore);
-  setText("aseoNotaFinal", data.finalScore.toFixed(2));
-  const badge = document.getElementById("aseoClasificacion");
-  if (badge) {
-    badge.textContent = data.classification;
-    badge.className = `status-badge ${getAseoClassificationClass(data.classification)}`;
-  }
-}
-
-function setText(id, value) {
-  const element = document.getElementById(id);
-  if (element) element.textContent = value;
-}
-
-function calculateAseoEvaluation() {
-  const area = getCurrentAseoArea();
-  const targetMinutes = aseoTargetMinutes[area] || 0;
-  const realMinutes = getAseoRealMinutes();
-  const qualityScore = getAseoComplianceScore(getValue("aseoCalidad"));
-  const toolsScore = getAseoComplianceScore(getValue("aseoHerramientas"));
-  const absentCount = getAseoAbsentCount();
-  const attendanceScore = Math.max(0, 100 - absentCount * 25);
-  const timeScore = getAseoTimeScore(realMinutes, targetMinutes);
-  let finalScore = (timeScore * 0.4) + (qualityScore * 0.35) + (attendanceScore * 0.15) + (toolsScore * 0.1);
-  if (getValue("aseoCalidad") === "No cumple") finalScore = Math.min(finalScore, 60);
-
-  return {
-    targetMinutes,
-    realMinutes,
-    realTimeLabel: formatMinutes(realMinutes),
-    timeScore,
-    qualityScore,
-    attendanceScore,
-    toolsScore,
-    finalScore,
-    classification: getAseoClassification(finalScore),
-  };
-}
-
-function getAseoRealMinutes() {
-  const date = getValue("aseoFecha") || state.selectedDate || toDateInputValue(new Date());
-  const start = getValue("aseoHoraInicio");
-  const end = getValue("aseoHoraFin");
-  if (!start || !end) return 0;
-
-  const startDate = new Date(`${date}T${start}`);
-  let endDate = new Date(`${date}T${end}`);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
-  if (endDate < startDate) endDate = new Date(endDate.getTime() + 86400000);
-
-  return Math.round((endDate - startDate) / 60000);
-}
-
-function getAseoComplianceScore(value) {
-  return {
-    Cumple: 100,
-    "Cumple parcialmente": 50,
-    "No cumple": 0,
-  }[value] ?? 0;
-}
-
-function getAseoAbsentCount() {
-  if (getValue("aseoAusencias") !== "Si") return 0;
-  return Number(getValue("aseoCantidadAusentes")) || getSelectedAseoAbsentees().length || 0;
-}
-
-function getSelectedAseoAbsentees() {
-  return Array.from(document.querySelectorAll("[data-aseo-absent]:checked")).map((input) => input.value);
-}
-
-function getAseoTimeScore(realMinutes, targetMinutes) {
-  if (!realMinutes || !targetMinutes) return 0;
-  if (realMinutes <= targetMinutes) return 100;
-  const ratio = realMinutes / targetMinutes;
-  if (ratio <= 1.1) return 90;
-  if (ratio <= 1.2) return 75;
-  if (ratio <= 1.3) return 50;
-  return 0;
-}
-
-function formatMinutes(minutes) {
-  if (!minutes) return "-";
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (!hours) return `${rest} min`;
-  if (!rest) return `${hours} h`;
-  return `${hours} h ${rest} min`;
-}
-
-function getAseoClassification(score) {
-  if (score >= 90) return "Excelente";
-  if (score >= 80) return "Bueno";
-  if (score >= 70) return "Aceptable";
-  return "Requiere mejora";
-}
-
-function getAseoClassificationClass(classification) {
-  return {
-    Excelente: "status-ok",
-    Bueno: "status-ok",
-    Aceptable: "status-warning",
-    "Requiere mejora": "status-danger",
-  }[classification] || "status-danger";
 }
 
 function renderPrefreidoMeasurementGroup(group) {
@@ -2468,6 +1000,7 @@ function parseMeasurementNumber(value) {
 
 async function addRecord(event) {
   event.preventDefault();
+  saveCurrentFormDraft();
   handleDateChange();
   if (state.activeFormatId === "aseo") updateAseoCalculations();
 
@@ -2479,6 +1012,7 @@ async function addRecord(event) {
     const saved = await saveRecord(record);
     if (!saved) return;
     clearAseoDraft(record.cuarto);
+    clearCurrentFormDraft();
     renderRecords();
     renderAseoSavedSummary(record);
     resetFormAfterSave();
@@ -2510,6 +1044,7 @@ async function addRecord(event) {
   record.estado = getRecordStatus(record);
   const saved = await saveRecord(record);
   if (!saved) return;
+  clearCurrentFormDraft();
   renderRecords();
   resetFormAfterSave();
 }
@@ -2782,6 +1317,98 @@ function resetFormAfterSave() {
   applyMaduracionFirstRecordInfo();
 }
 
+function getFormDrafts() {
+  try {
+    return JSON.parse(localStorage.getItem(FORM_DRAFTS_STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function getCurrentDraftKey() {
+  return state.activeFormatId;
+}
+
+function saveCurrentFormDraft() {
+  if (!elements.form || elements.porcionadoView?.hidden) return;
+
+  const values = collectFormDraftValues();
+  if (!hasFormDraftValues(values)) return;
+
+  const drafts = getFormDrafts();
+  drafts[getCurrentDraftKey()] = {
+    calendarType: state.calendarType,
+    selectedDate: state.selectedDate,
+    values,
+  };
+  localStorage.setItem(FORM_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+}
+
+function collectFormDraftValues() {
+  const fields = Array.from(elements.form.elements || []);
+  return fields.reduce((values, field) => {
+    if (!field.id || field.type === "button" || field.type === "submit" || field.disabled) return values;
+
+    if (field.type === "checkbox") {
+      values[field.id] = field.checked;
+      return values;
+    }
+
+    if (field.type === "radio") {
+      if (field.checked) values[field.name || field.id] = field.value;
+      return values;
+    }
+
+    values[field.id] = field.value;
+    return values;
+  }, {});
+}
+
+function hasFormDraftValues(values = {}) {
+  const ignoredIds = new Set(["fechaRegistro", "loteProduccion"]);
+  return Object.entries(values).some(([id, value]) => {
+    if (ignoredIds.has(id)) return false;
+    if (typeof value === "boolean") return value;
+    return String(value || "").trim() !== "";
+  });
+}
+
+function loadCurrentFormDraft() {
+  const draft = getFormDrafts()[getCurrentDraftKey()];
+  if (!draft?.values) return;
+
+  Object.entries(draft.values).forEach(([id, value]) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+
+    if (field.type === "checkbox") {
+      field.checked = Boolean(value);
+    } else {
+      field.value = value;
+    }
+
+    if (field.dataset.otherTarget) toggleOtherInput(field);
+    if (field.dataset.rangeMin !== undefined || field.dataset.rangeMax !== undefined) checkRange(field);
+  });
+
+  if (draft.values.datePicker) {
+    elements.datePicker.value = draft.values.datePicker;
+    handleDateChange();
+  }
+
+  if (state.activeFormatId === "aseo") {
+    state.aseoDraftArea = getCurrentAseoArea();
+    renderAseoMembers();
+    updateAseoCalculations();
+  }
+}
+
+function clearCurrentFormDraft() {
+  const drafts = getFormDrafts();
+  delete drafts[getCurrentDraftKey()];
+  localStorage.setItem(FORM_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+}
+
 function clearFormInputs() {
   const selectedValues = {
     datePicker: elements.datePicker.value,
@@ -2838,18 +1465,16 @@ function applyRememberedGeneralInfo() {
 
   const record = [...state.records].reverse().find((item) => item.fecha === elements.fechaRegistro.value);
   if (!record) {
-    elements.horaInicio.value = new Date().toTimeString().slice(0, 5);
-    elements.cuartoMaduracion.value = "";
-    elements.observaciones.value = "";
+    if (!elements.horaInicio.value) elements.horaInicio.value = new Date().toTimeString().slice(0, 5);
     return;
   }
 
   setGeneralFormValues({
-    horaInicio: record.hora,
-    cuartoMaduracion: record.cuarto,
-    realizadoPor: record.realizadoPor,
-    verificadoPor: record.verificadoPor,
-    observaciones: record.observaciones,
+    horaInicio: elements.horaInicio.value || record.hora,
+    cuartoMaduracion: elements.cuartoMaduracion.value || record.cuarto,
+    realizadoPor: getValue("realizadoPor") || record.realizadoPor,
+    verificadoPor: getValue("verificadoPor") || record.verificadoPor,
+    observaciones: elements.observaciones.value || record.observaciones,
   });
 }
 
@@ -2863,7 +1488,7 @@ function applyReciboFirstRecordInfo() {
     const element = document.getElementById(field.id);
     if (!element) return;
 
-    element.value = values[field.id] ?? field.defaultValue ?? "";
+    if (!element.value) element.value = values[field.id] ?? field.defaultValue ?? "";
   });
 }
 
@@ -2883,459 +1508,8 @@ function applyMaduracionFirstRecordInfo() {
     const element = document.getElementById(id);
     if (!element) return;
 
-    element.value = values[id] || "";
+    if (!element.value) element.value = values[id] || "";
   });
-}
-
-function loadRecords({ queueSync = true } = {}) {
-  state.records = loadLocalRecords(state.activeFormatId).filter((record) => !record._deleted);
-  renderRecords();
-
-  if (queueSync) queueFormatSync(state.activeFormatId, { full: true, delay: 1200 });
-}
-
-async function loadCloudRecords(formatId = state.activeFormatId) {
-  let query = supabaseClient
-    .from("quality_records")
-    .select("id,user_id,user_email,local_id,record_data,created_at")
-    .eq("format_id", formatId)
-    .order("created_at", { ascending: true });
-
-  if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
-
-  const { data, error } = await query;
-  if (error) {
-    window.alert("No se pudieron cargar los registros en la nube.");
-    state.records = loadLocalRecords(formatId).filter((record) => !record._deleted);
-  } else {
-    state.records = data.map((row) => recordFromCloudRow(row, formatId));
-    saveRecords(formatId, state.records);
-  }
-
-  renderRecords();
-}
-
-function loadLocalRecords(formatId = state.activeFormatId) {
-  try {
-    return (JSON.parse(localStorage.getItem(getStorageKey(formatId))) || []).map((record) => normalizeRecord(record, formatId));
-  } catch {
-    return [];
-  }
-}
-
-function recordFromCloudRow(row, formatId = state.activeFormatId) {
-  return normalizeRecord({
-    ...row.record_data,
-    id: row.local_id || row.record_data?.id,
-    _cloudId: row.id,
-    userEmail: row.user_email,
-    _syncStatus: "synced",
-  }, formatId);
-}
-
-function normalizeRecord(record, formatId = state.activeFormatId) {
-  const medidas = normalizeMeasurements(record.medidas, formatId);
-
-  if (formatId === "iqf") {
-    if (!medidas.referenciaIqf?.[0] && record.referencia) medidas.referenciaIqf[0] = record.referencia;
-    if (!medidas.arteIqf?.[0] && record.arte) medidas.arteIqf[0] = record.arte;
-    if (!medidas.resistenciaIqf?.[0] && record.resistencia) medidas.resistenciaIqf[0] = record.resistencia;
-  }
-
-  return {
-    id: record.id || crypto.randomUUID?.() || String(Date.now()),
-    _cloudId: record._cloudId,
-    userEmail: record.userEmail || "",
-    fechaIso: record.fechaIso || "",
-    fecha: record.fecha || "",
-    mes: record.mes || getMonthNameFromDisplay(record.fecha),
-    fechaJuliana: record.fechaJuliana || "",
-    loteMateriaPrima: record.loteMateriaPrima || "",
-    hora: record.hora || "",
-    horaFin: record.horaFin || record.medidas?.horaFin || "",
-    cuarto: record.cuarto || "",
-    lote: record.lote || "",
-    realizadoPor: record.realizadoPor || "",
-    verificadoPor: record.verificadoPor || "",
-    referencia: record.referencia || "",
-    arte: record.arte || "",
-    resistencia: record.resistencia || "",
-    observaciones: record.observaciones || "",
-    accionesCorrectivas: record.accionesCorrectivas || "",
-    responsableNovedad: record.responsableNovedad || "",
-    medidas,
-    briz: formatId === "porcionado" ? normalizeFixedArray(record.briz) : [],
-    estado: record.estado || "OK",
-    _syncStatus: record._syncStatus || "",
-    _deleted: Boolean(record._deleted),
-  };
-}
-
-function normalizeMeasurements(measurements = {}, formatId = state.activeFormatId) {
-  if (formatId === "maduracion") {
-    return maduracionGroups.reduce((result, field) => {
-      result[field.id] = measurements[field.id] || "";
-      return result;
-    }, {});
-  }
-
-  if (formatId === "recibo") {
-    return reciboGroups.reduce((result, field) => {
-      result[field.id] = measurements[field.id] || "";
-      return result;
-    }, {});
-  }
-
-  if (formatId === "novedades") {
-    return {};
-  }
-
-  if (formatId === "aseo") {
-    return normalizeAseoMeasurements(measurements);
-  }
-
-  if (formatId === "iqf") {
-    return iqfGroups.reduce((result, group) => {
-      result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
-      return result;
-    }, {});
-  }
-
-  if (formatId === "prefreido") {
-    return prefreidoGroups.reduce((result, group) => {
-      result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
-      return result;
-    }, {});
-  }
-
-  return measurementGroups.reduce((result, group) => {
-    result[group.id] = normalizeFixedArray(measurements[group.id], getGroupCount(group));
-    return result;
-  }, {});
-}
-
-function normalizeAseoMeasurements(measurements = {}) {
-  return {
-    integrantes: Array.isArray(measurements.integrantes) ? measurements.integrantes : [],
-    lider: measurements.lider || "",
-    horaInicio: measurements.horaInicio || "",
-    horaFin: measurements.horaFin || "",
-    tiempoRealMinutos: Number(measurements.tiempoRealMinutos) || 0,
-    tiempoReal: measurements.tiempoReal || formatMinutes(Number(measurements.tiempoRealMinutos) || 0),
-    tiempoObjetivoMinutos: Number(measurements.tiempoObjetivoMinutos) || 0,
-    ausencias: measurements.ausencias || "No",
-    cantidadAusentes: Number(measurements.cantidadAusentes) || 0,
-    ausentes: Array.isArray(measurements.ausentes) ? measurements.ausentes : [],
-    calidad: measurements.calidad || "",
-    herramientas: measurements.herramientas || "",
-    puntajeTiempo: Number(measurements.puntajeTiempo) || 0,
-    puntajeCalidad: Number(measurements.puntajeCalidad) || 0,
-    puntajeAsistencia: Number(measurements.puntajeAsistencia) || 0,
-    puntajeHerramientas: Number(measurements.puntajeHerramientas) || 0,
-    notaFinal: Number(measurements.notaFinal) || 0,
-    clasificacion: measurements.clasificacion || "Requiere mejora",
-    motivoDemora: measurements.motivoDemora || "",
-  };
-}
-
-function normalizeFixedArray(values, length = 5) {
-  return Array.from({ length }, (_, index) => values?.[index] || "");
-}
-
-async function syncActiveFormatRecords() {
-  await syncFormatRecords(state.activeFormatId, { renderActive: true });
-}
-
-async function syncAllFormatRecords({ renderActive = true } = {}) {
-  if (!canSyncCloud()) return;
-
-  for (const formatId of Object.keys(FORMAT_STORAGE_KEYS)) {
-    await syncFormatRecords(formatId, { renderActive: renderActive && formatId === state.activeFormatId });
-  }
-}
-
-function queueAllFormatSyncs({ full = false, renderActive = true, delay = 0 } = {}) {
-  Object.keys(FORMAT_STORAGE_KEYS).forEach((formatId) => {
-    queueFormatSync(formatId, { full, renderActive: renderActive && formatId === state.activeFormatId, delay });
-  });
-}
-
-function queueFormatSync(formatId = state.activeFormatId, { full = false, renderActive = true, delay = 0 } = {}) {
-  if (!canUseCloud()) return;
-
-  const currentQueued = backgroundSyncState.queued.get(formatId);
-  const nextOptions = {
-    full: Boolean(full || currentQueued?.full),
-    renderActive: Boolean(renderActive || currentQueued?.renderActive),
-  };
-  backgroundSyncState.queued.set(formatId, nextOptions);
-
-  if (backgroundSyncState.active.has(formatId)) return;
-  if (backgroundSyncState.timers.has(formatId)) return;
-
-  const timer = window.setTimeout(() => {
-    backgroundSyncState.timers.delete(formatId);
-    runQueuedFormatSync(formatId);
-  }, delay);
-  backgroundSyncState.timers.set(formatId, timer);
-}
-
-async function runQueuedFormatSync(formatId) {
-  if (backgroundSyncState.active.has(formatId)) return;
-  if (!canSyncCloud()) return;
-
-  const options = backgroundSyncState.queued.get(formatId);
-  if (!options) return;
-
-  backgroundSyncState.queued.delete(formatId);
-  backgroundSyncState.active.add(formatId);
-
-  try {
-    if (options.full) {
-      await syncFormatRecords(formatId, { renderActive: options.renderActive });
-    } else {
-      await syncPendingFormatRecords(formatId, { renderActive: options.renderActive });
-    }
-  } catch (error) {
-    state.cloudSyncError = error;
-    console.error("No se pudo sincronizar en segundo plano", error);
-  } finally {
-    backgroundSyncState.active.delete(formatId);
-  }
-
-  if (backgroundSyncState.queued.has(formatId)) {
-    window.setTimeout(() => runQueuedFormatSync(formatId), 0);
-  }
-}
-
-async function syncFormatRecords(formatId, { renderActive = true } = {}) {
-  if (!canSyncCloud()) return;
-
-  const localRecords = loadLocalRecords(formatId);
-  const retainedLocalRecords = [];
-
-  for (const record of localRecords) {
-    if (record._deleted) {
-      if (record._cloudId) {
-        const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
-        if (error) retainedLocalRecords.push(record);
-      }
-      continue;
-    }
-
-    if (record._syncStatus !== "synced" || !record._cloudId) {
-      const syncedRecord = await uploadRecordToCloud(record, formatId);
-      retainedLocalRecords.push(syncedRecord || record);
-    } else {
-      retainedLocalRecords.push(record);
-    }
-  }
-
-  const cloudRecords = await fetchCloudRecords(formatId);
-  if (!cloudRecords) {
-    saveRecords(formatId, retainedLocalRecords);
-    if (formatId === state.activeFormatId) {
-      state.records = retainedLocalRecords.filter((record) => !record._deleted);
-      if (renderActive) renderRecords();
-    }
-    return;
-  }
-
-  const merged = new Map();
-  cloudRecords.forEach((record) => merged.set(record.id, record));
-  retainedLocalRecords.forEach((record) => {
-    if (record._deleted) {
-      merged.delete(record.id);
-    } else if (!merged.has(record.id)) {
-      merged.set(record.id, record);
-    }
-  });
-
-  const syncedRecords = Array.from(merged.values());
-  const pendingDeleteRecords = retainedLocalRecords.filter((record) => record._deleted);
-  saveRecords(formatId, syncedRecords.concat(pendingDeleteRecords));
-
-  if (formatId === state.activeFormatId) {
-    state.records = syncedRecords;
-    if (renderActive) renderRecords();
-  }
-}
-
-async function syncPendingFormatRecords(formatId, { renderActive = true } = {}) {
-  if (!canSyncCloud()) return;
-
-  const localRecords = loadLocalRecords(formatId);
-  const syncedRecords = [];
-
-  for (const record of localRecords) {
-    if (record._deleted) {
-      if (record._cloudId) {
-        const { error } = await supabaseClient.from("quality_records").delete().eq("id", record._cloudId);
-        if (error) {
-          state.cloudSyncError = error;
-          syncedRecords.push(record);
-        }
-      }
-      continue;
-    }
-
-    if (record._syncStatus !== "synced" || !record._cloudId) {
-      const syncedRecord = await uploadRecordToCloud(record, formatId);
-      syncedRecords.push(syncedRecord || record);
-    } else {
-      syncedRecords.push(record);
-    }
-  }
-
-  const visibleRecords = syncedRecords.filter((record) => !record._deleted);
-  saveRecords(formatId, syncedRecords);
-
-  if (formatId === state.activeFormatId) {
-    state.records = visibleRecords;
-    if (renderActive) renderRecords();
-  }
-}
-
-async function fetchCloudRecords(formatId = state.activeFormatId) {
-  state.cloudSyncError = null;
-  let query = supabaseClient
-    .from("quality_records")
-    .select("id,user_id,user_email,local_id,record_data,created_at")
-    .eq("format_id", formatId)
-    .order("created_at", { ascending: true });
-
-  if (!isSuperUser()) query = query.eq("user_id", state.authUser.id);
-
-  const { data, error } = await query;
-  if (error) {
-    state.cloudSyncError = error;
-    console.error("No se pudieron cargar los registros en la nube", error);
-    return null;
-  }
-
-  return data.map((row) => recordFromCloudRow(row, formatId));
-}
-
-async function uploadRecordToCloud(record, formatId = state.activeFormatId) {
-  state.cloudSyncError = null;
-  const cloudRecord = {
-    ...record,
-    _syncStatus: "synced",
-    _deleted: false,
-  };
-
-  const payload = {
-    user_id: state.authUser.id,
-    user_email: state.authUser.email,
-    format_id: formatId,
-    local_id: record.id,
-    record_data: cloudRecord,
-  };
-
-  let existingId = record._cloudId;
-  if (!existingId) {
-    const { data: existingRecord, error: findError } = await supabaseClient
-      .from("quality_records")
-      .select("id")
-      .eq("user_id", state.authUser.id)
-      .eq("format_id", formatId)
-      .eq("local_id", record.id)
-      .maybeSingle();
-
-    if (findError) {
-      state.cloudSyncError = findError;
-      console.error("No se pudo buscar el registro en la nube", findError);
-      return null;
-    }
-
-    existingId = existingRecord?.id;
-  }
-
-  const request = existingId
-    ? supabaseClient.from("quality_records").update(payload).eq("id", existingId)
-    : supabaseClient.from("quality_records").insert(payload);
-
-  const { data, error } = await request
-    .select("id")
-    .single();
-
-  if (error) {
-    state.cloudSyncError = error;
-    console.error("No se pudo sincronizar el registro", error);
-    return null;
-  }
-
-  return {
-    ...cloudRecord,
-    _cloudId: data.id || existingId,
-    userEmail: state.authUser.email,
-  };
-}
-
-async function saveRecord(record) {
-  record._syncStatus = "pending";
-  state.records.push(record);
-  saveRecords();
-  queueFormatSync(state.activeFormatId);
-  return true;
-}
-
-function getCloudErrorMessage() {
-  const error = state.cloudSyncError;
-  if (!error) return "No se recibio detalle de Supabase. Verifica internet y que la tabla quality_records exista.";
-
-  return [
-    error.message,
-    error.details,
-    error.hint,
-    error.code ? `Codigo: ${error.code}` : "",
-  ].filter(Boolean).join(" | ");
-}
-
-function saveRecords(formatId = state.activeFormatId, records = state.records) {
-  localStorage.setItem(getStorageKey(formatId), JSON.stringify(records));
-}
-
-function getStorageKey(formatId = state.activeFormatId) {
-  return FORMAT_STORAGE_KEYS[formatId] || STORAGE_KEY;
-}
-
-async function deleteRecord(index) {
-  const record = state.records[index];
-
-  if (!record?._cloudId) {
-    state.records.splice(index, 1);
-    saveRecords();
-  } else {
-    const deleteMarker = { ...record, _deleted: true, _syncStatus: "pending-delete" };
-    state.records.splice(index, 1);
-    saveRecords(state.activeFormatId, state.records.concat(deleteMarker));
-    queueFormatSync(state.activeFormatId);
-  }
-
-  renderRecords();
-}
-
-async function clearRecords() {
-  if (!state.records.length) return;
-  if (!window.confirm("¿Deseas borrar todos los registros agregados?")) return;
-
-  const deleteMarkers = state.records
-    .filter((record) => record._cloudId)
-    .map((record) => ({ ...record, _deleted: true, _syncStatus: "pending-delete" }));
-  state.records = deleteMarkers;
-  saveRecords();
-  state.records = [];
-  renderRecords();
-  queueFormatSync(state.activeFormatId);
-}
-
-function canUseCloud() {
-  return Boolean(state.cloudEnabled && supabaseClient && state.authUser);
-}
-
-function canSyncCloud() {
-  return canUseCloud() && navigator.onLine;
 }
 
 function renderRecords() {
@@ -3634,352 +1808,6 @@ function buildAseoAverageList(records, getKey) {
 function formatAseoAverageList(items) {
   if (!items.length) return "Sin registros";
   return items.map((item) => `${escapeHtml(item.key)}: ${item.average.toFixed(2)} (${item.count})`).join("<br>");
-}
-
-function downloadExcel() {
-  if (!state.records.length) return;
-  if (state.activeFormatId === "aseo" && !getAseoExportRecords().length) {
-    window.alert("No hay registros guardados para el area seleccionada.");
-    return;
-  }
-
-  const exportFile = createRecordsFile();
-  if (!exportFile) {
-    showSharePanel();
-    return;
-  }
-
-  downloadBlob(exportFile.blob, exportFile.name);
-}
-
-function createRecordsFile() {
-  const rows = getExportRows();
-  const date = toDateInputValue(new Date());
-  const sheetName = state.activeFormatId === "aseo" ? getAseoExportSheetName() : "Control de Calidad";
-
-  if (typeof XLSX === "undefined") {
-    return null;
-  }
-
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-
-  return {
-    blob: new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }),
-    name: getExportFileName(date),
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  };
-}
-
-function getExportFileName(date) {
-  if (state.activeFormatId !== "aseo") return `control-calidad-${state.activeFormatId}-${date}.xlsx`;
-
-  const area = getAseoExportArea();
-  const areaPart = area ? slugifyFilePart(area) : "todas-las-areas";
-  return `evaluacion-aseo-${areaPart}-${date}.xlsx`;
-}
-
-function getAseoExportArea() {
-  return getValue("cuartoMaduracion") || getValue("aseoFilterArea");
-}
-
-function getAseoExportSheetName() {
-  const area = getAseoExportArea();
-  return (area || "Aseo").slice(0, 31);
-}
-
-function getAseoExportRecords() {
-  const area = getAseoExportArea();
-  return area ? state.records.filter((record) => record.cuarto === area) : state.records;
-}
-
-function slugifyFilePart(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function getExportRows() {
-  if (state.activeFormatId === "maduracion") {
-    return state.records.map((record) => ({
-      Fecha: record.fecha,
-      Lote: record.lote,
-      "Cuarto de maduracion": record.cuarto,
-      Seccion: record.medidas.seccionMaduracion,
-      Posicion: record.medidas.posicionMaduracion,
-      "Temperatura cuarto de maduracion (24C-27C)": record.medidas.tempCuartoMaduracion,
-      "Humedad relativa cuarto de maduracion (80%Hr-90%Hr)": record.medidas.humedadCuartoMaduracion,
-      "Brix platano": record.medidas.brixPlatanoMaduracion,
-      "Peso del platano (g)": record.medidas.pesoPlatanoMaduracion,
-      Sabor: record.medidas.saborMaduracion,
-      Olor: record.medidas.olorMaduracion,
-      Color: record.medidas.colorMaduracion,
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-      Observaciones: record.observaciones,
-    }));
-  }
-
-  if (state.activeFormatId === "recibo") {
-    return state.records.map((record) => ({
-      Fecha: record.fecha,
-      Mes: record.mes,
-      "Cuarto de Maduracion Ingresado": record.cuarto,
-      Origen: record.medidas.origen,
-      Placa: record.medidas.placa,
-      "Estado de Limpieza Vehiculo": record.medidas.estadoLimpiezaVehiculo,
-      "Libre Contaminacion Cruzada": record.medidas.libreContaminacionCruzada,
-      "Higiene del Conductor": record.medidas.higieneConductor,
-      "Documentos Vehiculo / Conductor": record.medidas.documentosVehiculoConductor,
-      Proveedor: record.medidas.proveedor,
-      Lote: record.lote,
-      "Semana Cosecha": record.medidas.semanaCosecha,
-      "Peso Verde (g)": record.medidas.pesoVerde,
-      "Longitud (cm)": record.medidas.longitudRecibo,
-      "Diametro (cm)": record.medidas.diametro,
-      "Plaga (A/P)": record.medidas.plaga,
-      Brix: record.medidas.brixRecibo,
-      Olor: record.medidas.olorRecibo,
-      Color: record.medidas.colorRecibo,
-      Estado: record.estado,
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-      Observaciones: record.observaciones,
-    }));
-  }
-
-  if (state.activeFormatId === "novedades") {
-    return state.records.map((record, index) => ({
-      "#": index + 1,
-      Fecha: record.fecha,
-      "Semana/Año": record.fechaJuliana,
-      Hora: record.hora,
-      Lote: record.lote,
-      Area: record.cuarto,
-      Estado: record.estado,
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-      Observaciones: record.observaciones,
-      "Acciones correctivas": record.accionesCorrectivas,
-      Responsable: record.responsableNovedad,
-    }));
-  }
-
-  if (state.activeFormatId === "aseo") {
-    return getAseoExportRecords().map((record, index) => ({
-      "#": index + 1,
-      Fecha: record.fecha,
-      Area: record.cuarto,
-      Integrantes: record.medidas.integrantes.join(", "),
-      Lider: record.medidas.lider,
-      "Hora inicio": record.medidas.horaInicio,
-      "Hora fin": record.medidas.horaFin,
-      "Tiempo real": record.medidas.tiempoReal,
-      "Tiempo objetivo (min)": record.medidas.tiempoObjetivoMinutos,
-      "Puntaje tiempo": record.medidas.puntajeTiempo,
-      "Calidad del aseo": record.medidas.calidad,
-      "Puntaje calidad": record.medidas.puntajeCalidad,
-      "Cantidad ausentes": record.medidas.cantidadAusentes,
-      Ausentes: record.medidas.ausentes.join(", "),
-      "Puntaje asistencia": record.medidas.puntajeAsistencia,
-      "Uso de herramientas": record.medidas.herramientas,
-      "Puntaje uso de herramientas": record.medidas.puntajeHerramientas,
-      "Nota final": record.medidas.notaFinal,
-      Clasificacion: record.medidas.clasificacion,
-      "Motivo de demora": record.medidas.motivoDemora,
-      Observaciones: record.observaciones,
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-    }));
-  }
-
-  if (state.activeFormatId === "iqf") {
-    return getIqfExportRows();
-  }
-
-  if (false) {
-    return state.records.map((record, index) => ({
-      "#": index + 1,
-      Fecha: record.fecha,
-      "Semana/Año": record.fechaJuliana,
-      Hora: record.hora,
-      "Cuarto de MaduraciÃ³n": record.cuarto,
-      "Lote de ProducciÃ³n": record.lote,
-      ...iqfGroups.reduce((result, group) => ({
-        ...result,
-        ...spreadArray(group.exportLabel, record.medidas[group.id] || normalizeFixedArray([], getGroupCount(group))),
-      }), {}),
-      Estado: record.estado,
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-      Observaciones: record.observaciones,
-    }));
-  }
-
-  if (state.activeFormatId === "prefreido") {
-    return state.records.map((record, index) => ({
-      "#": index + 1,
-      Fecha: record.fecha,
-      "Semana/Año": record.fechaJuliana,
-      Hora: record.hora,
-      "Cuarto de Maduración": record.cuarto,
-      "Lote de Producción": record.lote,
-      ...prefreidoGroups.reduce((result, group) => ({
-        ...result,
-        ...spreadArray(group.exportLabel, record.medidas[group.id] || normalizeFixedArray([], getGroupCount(group))),
-      }), {}),
-      Estado: record.estado,
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-      Observaciones: record.observaciones,
-    }));
-  }
-
-  return state.records.map((record, index) => ({
-    "#": index + 1,
-    Fecha: record.fecha,
-    "Semana/Año": record.fechaJuliana,
-    Hora: record.hora,
-    "Cuarto de Maduración": record.cuarto,
-    "Lote de Producción": record.lote,
-    ...measurementGroups.reduce((result, group) => ({
-      ...result,
-      ...spreadArray(group.label, record.medidas[group.id] || normalizeFixedArray([], getGroupCount(group))),
-    }), {}),
-    ...spreadArray("Brix", record.briz),
-    Estado: record.estado,
-    "Realizado por": record.realizadoPor,
-    "Verificado por": record.verificadoPor,
-    Observaciones: record.observaciones,
-  }));
-}
-
-async function shareRecordsFile() {
-  if (!state.records.length) return;
-  if (state.activeFormatId === "aseo" && !getAseoExportRecords().length) {
-    window.alert("No hay registros guardados para el area seleccionada.");
-    return;
-  }
-
-  const exportFile = createRecordsFile();
-  if (!exportFile) {
-    showSharePanel();
-    return;
-  }
-
-  const file = new File([exportFile.blob], exportFile.name, { type: exportFile.type });
-
-  if (navigator.share && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({
-        title: "Control de Calidad",
-        text: "Archivo de registros de control de calidad.",
-        files: [file],
-      });
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        showSharePanel();
-      }
-    }
-    return;
-  }
-
-  showSharePanel();
-}
-
-function showSharePanel() {
-  elements.sharePanel.hidden = false;
-  elements.sharePanel.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function hideSharePanel() {
-  elements.sharePanel.hidden = true;
-}
-
-function downloadBlob(blob, fileName) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function toCsvCell(value) {
-  const text = String(value ?? "");
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
-function getIqfExportRows() {
-  return state.records.map((record, index) => {
-    const recordDate = getDateInputFromRecord(record);
-
-    return {
-      "#": index + 1,
-      Fecha: record.fecha,
-      "Semana año": record.fechaJuliana,
-      Hora: record.hora,
-      "Cuarto de maduración": record.cuarto,
-      "Lote de materia prima": record.loteMateriaPrima || getDayOfYearCode(recordDate),
-      "Lote de producción": record.lote || (record.fechaJuliana ? `W${record.fechaJuliana.replace("-", "")}` : ""),
-      "Referencia de empaque": getIqfMeasureValue(record, "referenciaIqf"),
-      Presentación: getIqfMeasureValue(record, "presentacionIqf"),
-      "Temperatura de IQF": getIqfMeasureValue(record, "tempIqf"),
-      "Temperatura entrada IQF tajada 1": getIqfMeasureValue(record, "tempEntradaIqf", 0),
-      "Temperatura entrada IQF tajada 2": getIqfMeasureValue(record, "tempEntradaIqf", 1),
-      "Temperatura entrada IQF tajada 3": getIqfMeasureValue(record, "tempEntradaIqf", 2),
-      "Temperatura entrada IQF tajada 4": getIqfMeasureValue(record, "tempEntradaIqf", 3),
-      "Temperatura entrada IQF tajada 5": getIqfMeasureValue(record, "tempEntradaIqf", 4),
-      "Temperatura salida de IQF de la tajada 1": getIqfMeasureValue(record, "tempSalidaIqf", 0),
-      "Temperatura salida de IQF de la tajada 2": getIqfMeasureValue(record, "tempSalidaIqf", 1),
-      "Temperatura salida de IQF de la tajada 3": getIqfMeasureValue(record, "tempSalidaIqf", 2),
-      "Temperatura salida de IQF de la tajada 4": getIqfMeasureValue(record, "tempSalidaIqf", 3),
-      "Temperatura salida de IQF de la tajada 5": getIqfMeasureValue(record, "tempSalidaIqf", 4),
-      "Materiales extraños": getIqfMeasureValue(record, "materialExtranoIqf"),
-      "Brix salida IQF 1": getIqfMeasureValue(record, "brixSalidaIqf", 0),
-      "Brix salida IQF 2": getIqfMeasureValue(record, "brixSalidaIqf", 1),
-      "Brix salida IQF 3": getIqfMeasureValue(record, "brixSalidaIqf", 2),
-      "Brix salida IQF 4": getIqfMeasureValue(record, "brixSalidaIqf", 3),
-      "Brix salida IQF 5": getIqfMeasureValue(record, "brixSalidaIqf", 4),
-      "Peso neto 1": getIqfMeasureValue(record, "productoTerminado", 0),
-      "Peso neto 2": getIqfMeasureValue(record, "productoTerminado", 1),
-      "Peso neto 3": getIqfMeasureValue(record, "productoTerminado", 2),
-      "Peso neto 4": getIqfMeasureValue(record, "productoTerminado", 3),
-      "Peso neto 5": getIqfMeasureValue(record, "productoTerminado", 4),
-      Loteado: getIqfMeasureValue(record, "verificacionLoteado"),
-      "Sello vertical": getIqfMeasureValue(record, "selladoVertical"),
-      "Sello horizontal": getIqfMeasureValue(record, "selladoHorizontal"),
-      "Detector de metales": getIqfMeasureValue(record, "detectorMetalesIqf"),
-      "Arte y/o etiqueta": getIqfMeasureValue(record, "arteIqf"),
-      Resistencia: getIqfMeasureValue(record, "resistenciaIqf"),
-      "Realizado por": record.realizadoPor,
-      "Verificado por": record.verificadoPor,
-      Observaciones: record.observaciones,
-    };
-  });
-}
-
-function getIqfMeasureValue(record, groupId, index = 0) {
-  if (groupId === "referenciaIqf" && index === 0 && record.referencia) return record.referencia;
-  if (groupId === "arteIqf" && index === 0 && record.arte) return record.arte;
-  if (groupId === "resistenciaIqf" && index === 0 && record.resistencia) return record.resistencia;
-
-  return record.medidas?.[groupId]?.[index] || "";
-}
-
-function spreadArray(prefix, values) {
-  return values.reduce((result, value, index) => {
-    result[`${prefix} ${index + 1}`] = value;
-    return result;
-  }, {});
 }
 
 function escapeHtml(value) {
