@@ -442,7 +442,7 @@ async function clearRecords() {
 }
 
 function canUseCloud() {
-  return Boolean(state.cloudEnabled && supabaseClient && state.authUser);
+  return Boolean(state.cloudEnabled && supabaseClient && state.authUser && !state.authOfflineMode);
 }
 
 function canSyncCloud() {

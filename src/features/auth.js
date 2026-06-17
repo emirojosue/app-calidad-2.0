@@ -7,28 +7,33 @@ async function initCloudAuth() {
   supabaseClient = window.supabase.createClient(CLOUD_CONFIG.supabaseUrl, CLOUD_CONFIG.supabaseAnonKey);
   showAuthMessage("");
 
-  const { data } = await supabaseClient.auth.getSession();
-  if (data.session) {
-    await handleSignedIn(data.session.user);
-  } else {
-    showAuth();
+  try {
+    const { data } = await supabaseClient.auth.getSession();
+    if (data.session) {
+      await handleSignedIn(data.session.user);
+    } else if (!restoreOfflineAuth({ allowOnline: true })) {
+      showAuth();
+    }
+  } catch (error) {
+    console.error("No se pudo leer la sesion", error);
+    if (!restoreOfflineAuth({ allowOnline: true })) showAuth();
   }
 
-  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
     if (session?.user) {
       await handleSignedIn(session.user);
-    } else {
-      state.authUser = null;
-      state.authProfile = null;
-      state.records = [];
-      renderAuthHeader();
-      showAuth();
+      return;
+    }
+
+    if (event === "SIGNED_OUT" || !state.authUser) {
+      clearSignedInState();
     }
   });
 }
 
 async function handleSignedIn(user) {
   state.authUser = user;
+  state.authOfflineMode = false;
   state.authProfile = await ensureProfile(user);
 
   if (state.authProfile?.disabled) {
@@ -39,6 +44,7 @@ async function handleSignedIn(user) {
 
   showApp();
   renderAuthHeader();
+  saveOfflineAuth();
   await initializeAppView();
   queueAllFormatSyncs({ full: true, renderActive: false, delay: 2500 });
   if (isSuperUser()) await loadAdminUsers();
@@ -68,6 +74,8 @@ async function ensureProfile(user) {
 }
 
 function showAuth() {
+  saveCurrentFormDraft();
+  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
   elements.authShell.hidden = false;
   elements.appShell.hidden = true;
   showAuthLanding();
@@ -117,6 +125,15 @@ async function handleAuthSubmit(event) {
 }
 
 async function signInUser(event) {
+  if (!navigator.onLine) {
+    if (restoreOfflineAuth()) {
+      showAuthMessage("Sin internet. Entraste con los datos guardados en este dispositivo.");
+    } else {
+      showAuthMessage("Sin internet no se puede validar el usuario por primera vez.");
+    }
+    return;
+  }
+
   showAuthMessage("Validando acceso...");
   const email = resolveAuthEmail(elements.authEmail.value);
   if (!email) {
@@ -177,7 +194,9 @@ function normalizeUsername(value) {
 
 async function signOutUser() {
   if (!supabaseClient) return;
+  clearOfflineAuth();
   await supabaseClient.auth.signOut();
+  clearSignedInState();
 }
 
 function renderAuthHeader() {
@@ -185,7 +204,8 @@ function renderAuthHeader() {
   elements.userControls.hidden = !hasUser;
   elements.adminPanel.hidden = !isSuperUser();
   if (hasUser) {
-    elements.currentUserLabel.textContent = `${getUserDisplayName()}${isSuperUser() ? " - Super usuario" : ""}`;
+    const offlineLabel = state.authOfflineMode ? " - Sin conexion" : "";
+    elements.currentUserLabel.textContent = `${getUserDisplayName()}${isSuperUser() ? " - Super usuario" : ""}${offlineLabel}`;
   }
 }
 
@@ -205,6 +225,69 @@ function getUserDisplayName(user = state.authUser) {
   if (user.email.toLowerCase().endsWith(localUsername)) return user.email.split("@")[0];
 
   return user.email;
+}
+
+function saveOfflineAuth() {
+  if (!state.authUser) return;
+
+  const authData = {
+    user: {
+      id: state.authUser.id,
+      email: state.authUser.email,
+    },
+    profile: state.authProfile || null,
+  };
+  localStorage.setItem(OFFLINE_AUTH_STORAGE_KEY, JSON.stringify(authData));
+}
+
+function restoreOfflineAuth({ allowOnline = false } = {}) {
+  if (navigator.onLine && !allowOnline) return false;
+
+  try {
+    const authData = JSON.parse(localStorage.getItem(OFFLINE_AUTH_STORAGE_KEY));
+    if (!authData?.user?.id) return false;
+
+    state.authUser = authData.user;
+    state.authProfile = authData.profile || { id: authData.user.id, email: authData.user.email, role: "user" };
+    state.authOfflineMode = true;
+    showApp();
+    renderAuthHeader();
+    initializeAppView();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearOfflineAuth() {
+  localStorage.removeItem(OFFLINE_AUTH_STORAGE_KEY);
+}
+
+function clearSignedInState() {
+  saveCurrentFormDraft();
+  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+  state.authUser = null;
+  state.authProfile = null;
+  state.authOfflineMode = false;
+  state.records = [];
+  renderAuthHeader();
+  showAuth();
+}
+
+async function recoverCloudSession() {
+  if (!supabaseClient || !state.authOfflineMode) return;
+
+  try {
+    const { data } = await supabaseClient.auth.getSession();
+    if (data.session?.user) {
+      await handleSignedIn(data.session.user);
+      return;
+    }
+  } catch (error) {
+    console.error("No se pudo recuperar la sesion en linea", error);
+  }
+
+  renderAuthHeader();
 }
 
 async function loadAdminUsers() {

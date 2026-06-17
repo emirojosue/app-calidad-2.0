@@ -10,6 +10,7 @@ var {
   ASEO_DRAFTS_STORAGE_KEY,
   ASEO_ACTIVE_AREA_STORAGE_KEY,
   FORM_DRAFTS_STORAGE_KEY,
+  OFFLINE_AUTH_STORAGE_KEY,
   measurementGroups,
   brixRange,
   binaryOptions,
@@ -42,6 +43,7 @@ var state = {
   cloudEnabled: false,
   authUser: null,
   authProfile: null,
+  authOfflineMode: false,
   cloudSyncError: null,
   aseoDraftArea: "",
 };
@@ -203,7 +205,9 @@ function bindEvents() {
   elements.measurementsContainer.addEventListener("input", handleAseoDynamicInput);
 
   window.addEventListener("online", () => {
-    queueAllFormatSyncs({ delay: 1000 });
+    recoverCloudSession().then(() => {
+      queueAllFormatSyncs({ delay: 1000 });
+    });
   });
 
   window.addEventListener("beforeunload", () => {
@@ -790,7 +794,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=33").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=46").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1330,7 +1334,7 @@ function getCurrentDraftKey() {
 }
 
 function saveCurrentFormDraft() {
-  if (!elements.form || elements.porcionadoView?.hidden) return;
+  if (!elements.form) return;
 
   const values = collectFormDraftValues();
   if (!hasFormDraftValues(values)) return;

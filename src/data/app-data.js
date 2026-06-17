@@ -18,6 +18,7 @@ const ASEO_GROUPS_STORAGE_KEY = `${STORAGE_KEY}:aseo:groups`;
 const ASEO_DRAFTS_STORAGE_KEY = `${STORAGE_KEY}:aseo:drafts`;
 const ASEO_ACTIVE_AREA_STORAGE_KEY = `${STORAGE_KEY}:aseo:activeArea`;
 const FORM_DRAFTS_STORAGE_KEY = `${STORAGE_KEY}:formDrafts`;
+const OFFLINE_AUTH_STORAGE_KEY = `${STORAGE_KEY}:offlineAuth`;
 
 const measurementGroups = [
   {
@@ -250,26 +251,6 @@ const prefreidoGroups = [
 
 const iqfGroups = [
   {
-    id: "referenciaIqf",
-    title: "Referencia de empaque",
-    icon: "bi-card-text",
-    label: "Referencia de empaque",
-    options: ["Finca feliz", "Nativofoods", "Vida Latina", "El viejo y la tierra", "El viejo Luis"],
-    count: 1,
-    columnPrefix: "REF",
-    exportLabel: "Referencia de empaque",
-  },
-  {
-    id: "presentacionIqf",
-    title: "Presentacion",
-    icon: "bi-box2-heart",
-    label: "Presentacion",
-    options: ["4 lb (1.81 Kg)", "5 lb (2.27 Kg)", "6 lb (2.72 Kg)"],
-    count: 1,
-    columnPrefix: "PRE",
-    exportLabel: "Presentacion",
-  },
-  {
     id: "tempIqf",
     title: "Temperatura del IQF (-10&deg;C o menor)",
     icon: "bi-snow2",
@@ -318,6 +299,26 @@ const iqfGroups = [
     step: 0.1,
     columnPrefix: "BSI",
     exportLabel: "Brix salida IQF",
+  },
+  {
+    id: "referenciaIqf",
+    title: "Referencia de empaque",
+    icon: "bi-card-text",
+    label: "Referencia de empaque",
+    options: ["Finca feliz", "Nativofoods", "Vida Latina", "El viejo y la tierra", "El viejo Luis"],
+    count: 1,
+    columnPrefix: "REF",
+    exportLabel: "Referencia de empaque",
+  },
+  {
+    id: "presentacionIqf",
+    title: "Presentacion",
+    icon: "bi-box2-heart",
+    label: "Presentacion",
+    options: ["4 lb (1.81 Kg)", "5 lb (2.27 Kg)", "6 lb (2.72 Kg)"],
+    count: 1,
+    columnPrefix: "PRE",
+    exportLabel: "Presentacion",
   },
   {
     id: "productoTerminado",
@@ -644,6 +645,7 @@ window.ControlCalidadData = {
   ASEO_DRAFTS_STORAGE_KEY,
   ASEO_ACTIVE_AREA_STORAGE_KEY,
   FORM_DRAFTS_STORAGE_KEY,
+  OFFLINE_AUTH_STORAGE_KEY,
   measurementGroups,
   brixRange,
   binaryOptions,
