@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-calidad-v46";
+const CACHE_NAME = "control-calidad-v47";
 
 const LOCAL_ASSETS = [
   "./",
@@ -50,16 +50,30 @@ self.addEventListener("fetch", (event) => {
   if (!isLocalAsset && !isOptionalAsset) return;
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
+    caches.match(event.request).then(async (cachedResponse) => {
+      const cleanLocalRequest = isLocalAsset
+        ? new Request(new URL(requestUrl.pathname, self.location.origin), event.request)
+        : null;
+      const cleanCachedResponse = cleanLocalRequest ? await caches.match(cleanLocalRequest) : null;
+
       const networkUpdate = fetch(event.request)
         .then((networkResponse) => {
           const responseCopy = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseCopy));
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseCopy);
+            if (cleanLocalRequest) cache.put(cleanLocalRequest, networkResponse.clone());
+          });
           return networkResponse;
         })
         .catch(() => null);
 
-      return cachedResponse || networkUpdate.then((networkResponse) => networkResponse || caches.match("./index.html"));
+      if (cachedResponse || cleanCachedResponse) return cachedResponse || cleanCachedResponse;
+
+      return networkUpdate.then((networkResponse) => {
+        if (networkResponse) return networkResponse;
+        if (event.request.mode === "navigate") return caches.match("./index.html");
+        return Response.error();
+      });
     })
   );
 });
