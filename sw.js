@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-calidad-v47";
+const CACHE_NAME = "control-calidad-v48";
 
 const LOCAL_ASSETS = [
   "./",
@@ -51,17 +51,17 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     caches.match(event.request).then(async (cachedResponse) => {
-      const cleanLocalRequest = isLocalAsset
-        ? new Request(new URL(requestUrl.pathname, self.location.origin), event.request)
-        : null;
-      const cleanCachedResponse = cleanLocalRequest ? await caches.match(cleanLocalRequest) : null;
+      const cleanLocalUrl = isLocalAsset
+        ? new URL(requestUrl.pathname, self.location.origin).href
+        : "";
+      const cleanCachedResponse = cleanLocalUrl ? await caches.match(cleanLocalUrl) : null;
 
       const networkUpdate = fetch(event.request)
         .then((networkResponse) => {
           const responseCopy = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseCopy);
-            if (cleanLocalRequest) cache.put(cleanLocalRequest, networkResponse.clone());
+            if (cleanLocalUrl) cache.put(cleanLocalUrl, networkResponse.clone());
           });
           return networkResponse;
         })
