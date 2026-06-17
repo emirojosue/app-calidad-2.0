@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-calidad-v49";
+const CACHE_NAME = "control-calidad-v50";
 
 const LOCAL_ASSETS = [
   "./",

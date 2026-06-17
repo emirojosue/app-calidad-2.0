@@ -48,6 +48,7 @@ var state = {
   aseoDraftArea: "",
 };
 
+var DERIVED_FORM_FIELD_IDS = new Set(["fechaRegistro", "loteProduccion"]);
 var elements = {};
 var supabaseClient = null;
 var backgroundSyncState = {
@@ -794,7 +795,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=49").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=50").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -834,7 +835,14 @@ function handleDateChange() {
 
   state.selectedDate = gregorianDate;
 
-  const date = new Date(`${gregorianDate}T00:00:00`);
+  const date = parseDateInputValue(gregorianDate);
+  if (!date) {
+    elements.dateDisplay.textContent = "Fecha no valida";
+    elements.fechaRegistro.value = "";
+    elements.loteProduccion.value = "";
+    return;
+  }
+
   const formattedDate = date.toLocaleDateString("es-CO", {
     year: "numeric",
     month: "long",
@@ -870,8 +878,8 @@ function getLinkedFieldValue(group) {
 function gregorianToJulian(dateString) {
   if (!dateString) return "";
 
-  const date = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = parseDateInputValue(dateString);
+  if (!date) return "";
 
   const year = date.getFullYear();
   const start = new Date(year, 0, 1);
@@ -895,8 +903,8 @@ function julianToGregorian(julianString) {
 }
 
 function getWeekYear(dateString) {
-  const date = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = parseDateInputValue(dateString);
+  if (!date) return "";
 
   const normalizedDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const day = normalizedDate.getUTCDay() || 7;
@@ -920,8 +928,8 @@ function getLotCode(dateString) {
 }
 
 function getDayOfYearCode(dateString) {
-  const date = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = parseDateInputValue(dateString);
+  if (!date) return "";
 
   const year = date.getFullYear();
   const start = new Date(year, 0, 1);
@@ -941,11 +949,31 @@ function toDateInputValue(date) {
   return `${year}-${month}-${day}`;
 }
 
+function parseDateInputValue(dateString) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString || "");
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
 function getMonthName(dateString) {
   if (!dateString) return "";
 
-  const date = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = parseDateInputValue(dateString);
+  if (!date) return "";
 
   return date.toLocaleDateString("es-CO", { month: "long" });
 }
@@ -1087,12 +1115,12 @@ function buildAseoRecord() {
     return null;
   }
 
-  const date = new Date(`${dateIso}T00:00:00`);
-  const fecha = Number.isNaN(date.getTime()) ? dateIso : date.toLocaleDateString("es-CO", {
+  const date = parseDateInputValue(dateIso);
+  const fecha = date ? date.toLocaleDateString("es-CO", {
     year: "numeric",
     month: "long",
     day: "numeric",
-  });
+  }) : dateIso;
 
   return {
     id: crypto.randomUUID?.() || String(Date.now()),
@@ -1355,6 +1383,7 @@ function collectFormDraftValues() {
   const fields = Array.from(elements.form.elements || []);
   return fields.reduce((values, field) => {
     if (!field.id || field.type === "button" || field.type === "submit" || field.disabled) return values;
+    if (DERIVED_FORM_FIELD_IDS.has(field.id)) return values;
 
     if (field.type === "checkbox") {
       values[field.id] = field.checked;
@@ -1372,9 +1401,8 @@ function collectFormDraftValues() {
 }
 
 function hasFormDraftValues(values = {}) {
-  const ignoredIds = new Set(["fechaRegistro", "loteProduccion"]);
   return Object.entries(values).some(([id, value]) => {
-    if (ignoredIds.has(id)) return false;
+    if (DERIVED_FORM_FIELD_IDS.has(id)) return false;
     if (typeof value === "boolean") return value;
     return String(value || "").trim() !== "";
   });
@@ -1385,6 +1413,8 @@ function loadCurrentFormDraft() {
   if (!draft?.values) return;
 
   Object.entries(draft.values).forEach(([id, value]) => {
+    if (DERIVED_FORM_FIELD_IDS.has(id)) return;
+
     const field = document.getElementById(id);
     if (!field) return;
 
