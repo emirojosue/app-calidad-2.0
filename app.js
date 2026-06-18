@@ -47,15 +47,21 @@ var state = {
   authSignOutRequested: false,
   cloudSyncError: null,
   aseoDraftArea: "",
+  lastAutoGeneralInfo: {
+    fechaRegistro: "",
+    loteProduccion: "",
+    horaInicio: "",
+  },
 };
 
-var DERIVED_FORM_FIELD_IDS = new Set(["fechaRegistro", "loteProduccion"]);
 var DRAFT_DB_NAME = "control-calidad-drafts";
 var DRAFT_DB_VERSION = 1;
 var DRAFT_STORE_NAME = "draftDocuments";
 var FORM_DRAFT_DOCUMENT_ID = "quality-form-drafts";
 var ASEO_DRAFT_DOCUMENT_ID = "aseo-form-drafts";
 var DRAFT_SCHEMA_VERSION = 1;
+var ACTIVE_DRAFT_FORMAT_STORAGE_KEY = `${STORAGE_KEY}:activeDraftFormat`;
+var APP_TIME_ZONE = "America/Bogota";
 var draftCache = {
   form: {},
   aseo: {},
@@ -261,6 +267,53 @@ function flushCurrentDrafts() {
   if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea(), { immediate: true });
 }
 
+function persistDraftsSync() {
+  try {
+    // Persist current form draft synchronously to localStorage to survive reloads
+    if (elements.form) {
+      rememberActiveDraftFormat(state.activeFormatId);
+      const values = collectFormDraftValues();
+      const draftKey = getCurrentDraftKey();
+      const drafts = getFormDrafts();
+      drafts[draftKey] = {
+        schemaVersion: DRAFT_SCHEMA_VERSION,
+        revision: nextDraftRevision(),
+        updatedAt: new Date().toISOString(),
+        calendarType: state.calendarType,
+        selectedDate: state.selectedDate,
+        datePickerValue: elements.datePicker.value,
+        values,
+      };
+      try {
+        localStorage.setItem(FORM_DRAFTS_STORAGE_KEY, JSON.stringify(cloneDraftData(drafts)));
+      } catch (err) {
+        console.warn('No se pudo escribir mirror de borradores en localStorage', err);
+      }
+    }
+
+    // Persist aseo draft if active
+    if (state.activeFormatId === 'aseo') {
+      const area = getCurrentAseoArea();
+      if (area) {
+        const aseoDrafts = getAseoDrafts();
+        aseoDrafts[area] = {
+          ...collectAseoDraftValues(),
+          schemaVersion: DRAFT_SCHEMA_VERSION,
+          revision: nextDraftRevision(),
+          updatedAt: new Date().toISOString(),
+        };
+        try {
+          localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(cloneDraftData(aseoDrafts)));
+        } catch (err) {
+          console.warn('No se pudo escribir mirror de aseo en localStorage', err);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('persistDraftsSync falló', error);
+  }
+}
+
 async function requestPersistentStorage() {
   if (!navigator.storage?.persist) return;
 
@@ -448,21 +501,40 @@ function updateDraftSaveStatus(message, isError = false) {
 }
 
 async function initializeAppView() {
-  const hasVisibleDraft = hasCurrentVisibleFormData();
+  const startupDraftFormatId = getStartupDraftFormatId();
+  if (startupDraftFormatId) {
+    state.activeFormatId = startupDraftFormatId;
+    elements.formatViewTitle.textContent = formatTitles[startupDraftFormatId];
+  }
+
+  const hasVisibleDraft = !startupDraftFormatId && hasCurrentVisibleFormData();
   if (hasVisibleDraft) flushCurrentDrafts();
 
   updateFormatSpecificFields();
+  if (state.activeFormatId === "aseo") restoreLastAseoArea();
   renderMeasurementFields();
   renderTableHeader();
   if (!hasVisibleDraft) setInitialDateTime();
   loadRecords();
+  if (state.activeFormatId === "aseo") {
+    state.aseoDraftArea = getCurrentAseoArea();
+    renderAseoMembers();
+    loadAseoDraftForArea(state.aseoDraftArea);
+    updateAseoCalculations();
+  }
   await loadCurrentFormDraft();
+
+  if (startupDraftFormatId) {
+    elements.mainMenu.hidden = true;
+    elements.porcionadoView.hidden = false;
+  }
 }
 
 async function showFormatView(formatId) {
   saveCurrentFormDraft({ immediate: true });
   if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea(), { immediate: true });
   state.activeFormatId = formatId;
+  rememberActiveDraftFormat(formatId);
   elements.formatViewTitle.textContent = formatTitles[formatId];
   updateFormatSpecificFields();
   if (state.activeFormatId === "aseo") restoreLastAseoArea();
@@ -514,8 +586,8 @@ function showMainMenu() {
 
 function setInitialDateTime() {
   const today = new Date();
-  elements.datePicker.value = toDateInputValue(today);
-  elements.horaInicio.value = today.toTimeString().slice(0, 5);
+  elements.datePicker.value = getCurrentBogotaDateInputValue(today);
+  autofillGeneralField(elements.horaInicio, getCurrentBogotaTimeInputValue(today), "horaInicio");
   handleDateChange();
 }
 
@@ -1012,6 +1084,7 @@ function toggleOtherInput(select) {
 
 function updateClock() {
   elements.currentTime.textContent = new Date().toLocaleTimeString("es-CO", {
+    timeZone: APP_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -1022,7 +1095,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=52").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=56").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1038,11 +1111,11 @@ function setCalendarType(type) {
   if (type === "gregorian") {
     elements.datePicker.type = "date";
     elements.datePicker.placeholder = "";
-    elements.datePicker.value = state.selectedDate || toDateInputValue(new Date());
+    elements.datePicker.value = state.selectedDate || getCurrentBogotaDateInputValue();
   } else {
     elements.datePicker.type = "text";
     elements.datePicker.placeholder = "YYYY-DDD (ej: 2026-121)";
-    elements.datePicker.value = gregorianToJulian(state.selectedDate || toDateInputValue(new Date()));
+    elements.datePicker.value = gregorianToJulian(state.selectedDate || getCurrentBogotaDateInputValue());
   }
 
   handleDateChange();
@@ -1056,8 +1129,8 @@ function handleDateChange() {
 
   if (!gregorianDate || !julianDate) {
     elements.dateDisplay.textContent = "Fecha no válida";
-    elements.fechaRegistro.value = "";
-    elements.loteProduccion.value = "";
+    autofillGeneralField(elements.fechaRegistro, "", "fechaRegistro");
+    autofillGeneralField(elements.loteProduccion, "", "loteProduccion");
     return;
   }
 
@@ -1066,8 +1139,8 @@ function handleDateChange() {
   const date = parseDateInputValue(gregorianDate);
   if (!date) {
     elements.dateDisplay.textContent = "Fecha no valida";
-    elements.fechaRegistro.value = "";
-    elements.loteProduccion.value = "";
+    autofillGeneralField(elements.fechaRegistro, "", "fechaRegistro");
+    autofillGeneralField(elements.loteProduccion, "", "loteProduccion");
     return;
   }
 
@@ -1078,9 +1151,18 @@ function handleDateChange() {
   });
 
   elements.dateDisplay.textContent = formattedDate;
-  elements.fechaRegistro.value = formattedDate;
-  elements.loteProduccion.value = getLotCode(gregorianDate);
+  autofillGeneralField(elements.fechaRegistro, formattedDate, "fechaRegistro");
+  autofillGeneralField(elements.loteProduccion, getLotCode(gregorianDate), "loteProduccion");
   syncValueFromFields();
+}
+
+function autofillGeneralField(field, value, stateKey) {
+  if (!field) return;
+
+  const previousAutoValue = state.lastAutoGeneralInfo[stateKey] || "";
+  const canAutofill = !field.value || field.value === previousAutoValue;
+  if (canAutofill) field.value = value;
+  state.lastAutoGeneralInfo[stateKey] = value;
 }
 
 function syncValueFromFields() {
@@ -1175,6 +1257,34 @@ function toDateInputValue(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getCurrentBogotaDateInputValue(date = new Date()) {
+  const parts = getBogotaDateTimeParts(date, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getCurrentBogotaTimeInputValue(date = new Date()) {
+  const parts = getBogotaDateTimeParts(date, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  return `${parts.hour}:${parts.minute}`;
+}
+
+function getBogotaDateTimeParts(date, options) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIME_ZONE,
+    ...options,
+  }).formatToParts(date).reduce((parts, item) => {
+    if (item.type !== "literal") parts[item.type] = item.value;
+    return parts;
+  }, {});
 }
 
 function parseDateInputValue(dateString) {
@@ -1320,7 +1430,7 @@ function buildAseoRecord() {
   const absentCount = getAseoAbsentCount();
   const delayReason = getValue("aseoMotivoDemora");
   const delayOther = getValue("aseoMotivoDemoraOtro");
-  const dateIso = getValue("aseoFecha") || state.selectedDate || toDateInputValue(new Date());
+  const dateIso = getValue("aseoFecha") || state.selectedDate || getCurrentBogotaDateInputValue();
 
   if (!area) {
     window.alert("Seleccione el area de aseo.");
@@ -1590,11 +1700,13 @@ function getCurrentDraftKey() {
 
 function saveCurrentFormDraft({ immediate = false } = {}) {
   if (!elements.form) return;
+  rememberActiveDraftFormat(state.activeFormatId);
 
   const values = collectFormDraftValues();
   const draftKey = getCurrentDraftKey();
   const existingDraft = draftCache.form[draftKey];
-  if (!hasFormDraftValues(values) && !existingDraft) return;
+  const hasSelectedDate = Boolean(state.selectedDate || elements.datePicker.value);
+  if (!hasFormDraftValues(values) && !hasSelectedDate && !existingDraft) return;
 
   const drafts = getFormDrafts();
   drafts[draftKey] = {
@@ -1609,30 +1721,72 @@ function saveCurrentFormDraft({ immediate = false } = {}) {
   queueDraftDocumentSave(FORM_DRAFT_DOCUMENT_ID, drafts, { showStatus: !immediate });
 }
 
+function rememberActiveDraftFormat(formatId = state.activeFormatId) {
+  if (!formatId) return;
+
+  try {
+    localStorage.setItem(ACTIVE_DRAFT_FORMAT_STORAGE_KEY, formatId);
+  } catch (error) {
+    console.error("No se pudo recordar el formato activo", error);
+  }
+}
+
+function getStartupDraftFormatId() {
+  const drafts = getFormDrafts();
+  const savedFormatId = readActiveDraftFormat();
+  if (hasStoredFormDraft(savedFormatId, drafts)) return savedFormatId;
+
+  return Object.keys(drafts).find((formatId) => hasStoredFormDraft(formatId, drafts)) || "";
+}
+
+function readActiveDraftFormat() {
+  try {
+    return localStorage.getItem(ACTIVE_DRAFT_FORMAT_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function hasStoredFormDraft(formatId, drafts = getFormDrafts()) {
+  if (!formatId || !formatTitles[formatId]) return false;
+
+  const draft = drafts[formatId];
+  if (!draft?.values) return false;
+  return Boolean(draft.selectedDate || draft.datePickerValue || hasFormDraftValues(draft.values));
+}
+
 function collectFormDraftValues() {
   const fields = Array.from(elements.form.elements || []);
   return fields.reduce((values, field) => {
-    if (!field.id || field.type === "button" || field.type === "submit" || field.disabled) return values;
-    if (DERIVED_FORM_FIELD_IDS.has(field.id)) return values;
+    const key = getFormDraftFieldKey(field);
+    if (!key || field.type === "button" || field.type === "submit" || field.disabled) return values;
 
     if (field.type === "checkbox") {
-      values[field.id] = field.checked;
+      values[key] = field.checked;
       return values;
     }
 
     if (field.type === "radio") {
-      if (field.checked) values[field.name || field.id] = field.value;
+      if (field.checked) values[key] = field.value;
       return values;
     }
 
-    values[field.id] = field.value;
+    values[key] = field.value;
     return values;
   }, {});
 }
 
+function getFormDraftFieldKey(field) {
+  if (!field) return "";
+  if (field.id) return field.id;
+  if (field.name) return `name:${field.name}`;
+  if (field.dataset.aseoLeader !== undefined) return `aseoLeader:${field.value}`;
+  if (field.dataset.aseoAbsent !== undefined) return `aseoAbsent:${field.value}`;
+  return "";
+}
+
 function hasFormDraftValues(values = {}) {
   return Object.entries(values).some(([id, value]) => {
-    if (DERIVED_FORM_FIELD_IDS.has(id)) return false;
     if (typeof value === "boolean") return value;
     return String(value || "").trim() !== "";
   });
@@ -1665,19 +1819,7 @@ async function loadCurrentFormDraft() {
   }
 
   Object.entries(draft.values).forEach(([id, value]) => {
-    if (DERIVED_FORM_FIELD_IDS.has(id)) return;
-
-    const field = document.getElementById(id);
-    if (!field) return;
-
-    if (field.type === "checkbox") {
-      field.checked = Boolean(value);
-    } else {
-      field.value = value;
-    }
-
-    if (field.dataset.otherTarget) toggleOtherInput(field);
-    if (field.dataset.rangeMin !== undefined || field.dataset.rangeMax !== undefined) checkRange(field);
+    restoreFormDraftField(id, value);
   });
 
   if (state.activeFormatId === "aseo") {
@@ -1689,10 +1831,65 @@ async function loadCurrentFormDraft() {
   updateDraftSaveStatus("Borrador guardado");
 }
 
+function restoreFormDraftField(key, value) {
+  const field = getFormDraftField(key, value);
+  if (!field) return;
+  if (isGeneralAutofillField(field) && !value && field.value) return;
+
+  if (field.type === "checkbox") {
+    field.checked = Boolean(value);
+  } else if (field.type === "radio") {
+    field.checked = field.value === value;
+  } else {
+    field.value = value;
+  }
+
+  if (field.dataset.otherTarget) toggleOtherInput(field);
+  if (field.dataset.rangeMin !== undefined || field.dataset.rangeMax !== undefined) checkRange(field);
+}
+
+function isGeneralAutofillField(field) {
+  return ["fechaRegistro", "loteProduccion", "horaInicio"].includes(field.id);
+}
+
+function getFormDraftField(key, value) {
+  const directField = document.getElementById(key);
+  if (directField) return directField;
+
+  if (key.startsWith("name:")) {
+    const name = key.slice(5);
+    return Array.from(elements.form.elements || []).find((field) => field.name === name && field.value === value)
+      || Array.from(elements.form.elements || []).find((field) => field.name === name);
+  }
+
+  if (key.startsWith("aseoLeader:")) {
+    const leader = key.slice(11);
+    return Array.from(document.querySelectorAll("[data-aseo-leader]")).find((field) => field.value === leader);
+  }
+
+  if (key.startsWith("aseoAbsent:")) {
+    const absent = key.slice(11);
+    return Array.from(document.querySelectorAll("[data-aseo-absent]")).find((field) => field.value === absent);
+  }
+
+  return null;
+}
+
 function clearCurrentFormDraft() {
   const drafts = getFormDrafts();
   delete drafts[getCurrentDraftKey()];
   queueDraftDocumentSave(FORM_DRAFT_DOCUMENT_ID, drafts);
+  clearRememberedActiveDraftFormatIfEmpty();
+}
+
+function clearRememberedActiveDraftFormatIfEmpty() {
+  if (Object.keys(getFormDrafts()).some((formatId) => hasStoredFormDraft(formatId))) return;
+
+  try {
+    localStorage.removeItem(ACTIVE_DRAFT_FORMAT_STORAGE_KEY);
+  } catch (error) {
+    console.error("No se pudo limpiar el formato activo del borrador", error);
+  }
 }
 
 function clearFormInputs() {
@@ -1712,7 +1909,7 @@ function clearFormInputs() {
   elements.horaInicio.value = selectedValues.hora;
   if (state.activeFormatId === "aseo") elements.cuartoMaduracion.value = selectedValues.area;
   if (state.activeFormatId === "aseo") {
-    const today = toDateInputValue(new Date());
+    const today = getCurrentBogotaDateInputValue();
     const aseoFecha = document.getElementById("aseoFecha");
     if (aseoFecha) aseoFecha.value = today;
   }
@@ -1751,7 +1948,7 @@ function applyRememberedGeneralInfo() {
 
   const record = [...state.records].reverse().find((item) => item.fecha === elements.fechaRegistro.value);
   if (!record) {
-    if (!elements.horaInicio.value) elements.horaInicio.value = new Date().toTimeString().slice(0, 5);
+    if (!elements.horaInicio.value) elements.horaInicio.value = getCurrentBogotaTimeInputValue();
     return;
   }
 
