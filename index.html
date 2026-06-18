@@ -15,16 +15,16 @@
   <link rel="apple-touch-icon" href="app-icon.svg">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-  <link rel="stylesheet" href="styles.css?v=52">
+  <link rel="stylesheet" href="styles.css?v=56">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
-  <script src="config.js?v=52" defer></script>
-  <script src="src/data/app-data.js?v=52" defer></script>
-  <script src="app.js?v=52" defer></script>
-  <script src="src/features/auth.js?v=52" defer></script>
-  <script src="src/features/aseo.js?v=52" defer></script>
-  <script src="src/services/records-store.js?v=52" defer></script>
-  <script src="src/services/export-records.js?v=52" defer></script>
+  <script src="config.js?v=56" defer></script>
+  <script src="src/data/app-data.js?v=56" defer></script>
+  <script src="app.js?v=56" defer></script>
+  <script src="src/features/auth.js?v=56" defer></script>
+  <script src="src/features/aseo.js?v=56" defer></script>
+  <script src="src/services/records-store.js?v=56" defer></script>
+  <script src="src/services/export-records.js?v=56" defer></script>
 </head>
 <body>
   <section class="auth-shell" id="authShell" hidden>
@@ -253,11 +253,11 @@
         <div class="row g-3 mb-4">
           <div class="col-md-4">
             <label class="form-label" for="fechaRegistro">Fecha seleccionada</label>
-            <input class="form-control" type="text" id="fechaRegistro" readonly required>
+            <input class="form-control" type="text" id="fechaRegistro" required>
           </div>
           <div class="col-md-4">
             <label class="form-label" for="loteProduccion">Lote de producción</label>
-            <input class="form-control" type="text" id="loteProduccion" readonly required>
+            <input class="form-control" type="text" id="loteProduccion" required>
           </div>
           <div class="col-md-4">
             <label class="form-label" for="horaInicio">Hora de inicio</label>
@@ -292,6 +292,7 @@
             <label class="form-label" for="realizadoPor">Realizado por</label>
             <select class="form-select" id="realizadoPor" required>
               <option value="EMIRO CEBALLOS">EMIRO CEBALLOS</option>
+              <option value="JOHAN CHAVERRA">JOHAN CHAVERRA</option>
             </select>
           </div>
           <div class="col-md-6">
