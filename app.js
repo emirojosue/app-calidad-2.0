@@ -277,10 +277,10 @@ function bindEvents() {
 
 function startHoraInicioClock() {
   if (!elements.horaInicio) return;
-  // Do not override if a value already exists (e.g., restored draft)
-  if (elements.horaInicio.value) return;
+  // Reset user-edited flag and always initialize the clock on app open
+  horaInicioUserEdited = false;
 
-  // initial set
+  // initial set (force current time)
   elements.horaInicio.value = getCurrentBogotaTimeInputValue();
 
   if (horaInicioClockTimer) clearInterval(horaInicioClockTimer);
