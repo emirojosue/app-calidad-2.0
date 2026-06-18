@@ -25,6 +25,15 @@ async function initCloudAuth() {
       return;
     }
 
+    if (
+      state.authUser &&
+      !state.authSignOutRequested &&
+      (event === "SIGNED_OUT" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION" || !navigator.onLine)
+    ) {
+      keepCurrentSessionOffline();
+      return;
+    }
+
     if (event === "SIGNED_OUT" || !state.authUser) {
       clearSignedInState();
     }
@@ -32,6 +41,8 @@ async function initCloudAuth() {
 }
 
 async function handleSignedIn(user) {
+  const isSameUser = state.authUser?.id === user.id && !state.authOfflineMode;
+  state.authSignOutRequested = false;
   state.authUser = user;
   state.authOfflineMode = false;
   state.authProfile = await ensureProfile(user);
@@ -45,37 +56,48 @@ async function handleSignedIn(user) {
   showApp();
   renderAuthHeader();
   saveOfflineAuth();
-  await initializeAppView();
+  if (!isSameUser || elements.appShell.hidden) await initializeAppView();
   queueAllFormatSyncs({ full: true, renderActive: false, delay: 2500 });
   if (isSuperUser()) await loadAdminUsers();
 }
 
 async function ensureProfile(user) {
-  const { data: existing } = await supabaseClient
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
+  try {
+    const { data: existing } = await supabaseClient
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
 
-  if (existing) return existing;
+    if (existing) return existing;
 
-  const profile = {
-    id: user.id,
-    email: user.email,
-    role: "user",
-  };
-  const { data, error } = await supabaseClient.from("profiles").insert(profile).select("*").single();
-  if (error) {
-    showAuthMessage("No se pudo crear el perfil del usuario.");
+    const profile = {
+      id: user.id,
+      email: user.email,
+      role: "user",
+    };
+    const { data, error } = await supabaseClient.from("profiles").insert(profile).select("*").single();
+    if (error) {
+      showAuthMessage("No se pudo crear el perfil del usuario.");
+      return profile;
+    }
+
+    return data;
+  } catch (error) {
+    console.error("No se pudo leer el perfil; se conserva sesion local", error);
+    const savedAuth = getOfflineAuthData();
+    const profile = savedAuth?.profile || {
+      id: user.id,
+      email: user.email,
+      role: "user",
+    };
+    state.authOfflineMode = true;
     return profile;
   }
-
-  return data;
 }
 
 function showAuth() {
-  saveCurrentFormDraft();
-  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+  flushCurrentDrafts();
   elements.authShell.hidden = false;
   elements.appShell.hidden = true;
   showAuthLanding();
@@ -194,6 +216,8 @@ function normalizeUsername(value) {
 
 async function signOutUser() {
   if (!supabaseClient) return;
+  state.authSignOutRequested = true;
+  flushCurrentDrafts();
   clearOfflineAuth();
   await supabaseClient.auth.signOut();
   clearSignedInState();
@@ -244,7 +268,7 @@ function restoreOfflineAuth({ allowOnline = false } = {}) {
   if (navigator.onLine && !allowOnline) return false;
 
   try {
-    const authData = JSON.parse(localStorage.getItem(OFFLINE_AUTH_STORAGE_KEY));
+    const authData = getOfflineAuthData();
     if (!authData?.user?.id) return false;
 
     state.authUser = authData.user;
@@ -264,14 +288,33 @@ function clearOfflineAuth() {
 }
 
 function clearSignedInState() {
-  saveCurrentFormDraft();
-  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+  flushCurrentDrafts();
+  state.authSignOutRequested = false;
   state.authUser = null;
   state.authProfile = null;
   state.authOfflineMode = false;
   state.records = [];
   renderAuthHeader();
   showAuth();
+}
+
+function getOfflineAuthData() {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_AUTH_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function keepCurrentSessionOffline() {
+  if (!state.authUser) return false;
+
+  flushCurrentDrafts();
+  state.authOfflineMode = true;
+  showApp();
+  renderAuthHeader();
+  showAuthMessage("");
+  return true;
 }
 
 async function recoverCloudSession() {

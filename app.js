@@ -44,6 +44,7 @@ var state = {
   authUser: null,
   authProfile: null,
   authOfflineMode: false,
+  authSignOutRequested: false,
   cloudSyncError: null,
   aseoDraftArea: "",
 };
@@ -224,7 +225,17 @@ function bindEvents() {
   elements.measurementsContainer.addEventListener("change", handleAseoDynamicChange);
   elements.measurementsContainer.addEventListener("input", handleAseoDynamicInput);
 
+  window.addEventListener("offline", () => {
+    flushCurrentDrafts();
+    if (state.authUser) {
+      state.authOfflineMode = true;
+      renderAuthHeader();
+    }
+    updateDraftSaveStatus("Borrador guardado");
+  });
+
   window.addEventListener("online", () => {
+    flushCurrentDrafts();
     recoverCloudSession().then(() => {
       queueAllFormatSyncs({ delay: 1000 });
     });
@@ -437,10 +448,13 @@ function updateDraftSaveStatus(message, isError = false) {
 }
 
 async function initializeAppView() {
+  const hasVisibleDraft = hasCurrentVisibleFormData();
+  if (hasVisibleDraft) flushCurrentDrafts();
+
   updateFormatSpecificFields();
   renderMeasurementFields();
   renderTableHeader();
-  setInitialDateTime();
+  if (!hasVisibleDraft) setInitialDateTime();
   loadRecords();
   await loadCurrentFormDraft();
 }
@@ -1008,7 +1022,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=51").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=52").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -1622,6 +1636,13 @@ function hasFormDraftValues(values = {}) {
     if (typeof value === "boolean") return value;
     return String(value || "").trim() !== "";
   });
+}
+
+function hasCurrentVisibleFormData() {
+  if (!elements.form || elements.appShell?.hidden) return false;
+
+  if (state.selectedDate || elements.datePicker?.value) return true;
+  return hasFormDraftValues(collectFormDraftValues());
 }
 
 async function loadCurrentFormDraft() {
