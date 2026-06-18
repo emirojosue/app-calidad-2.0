@@ -76,6 +76,8 @@ var backgroundSyncState = {
   queued: new Map(),
   timers: new Map(),
 };
+var horaInicioClockTimer = null;
+var horaInicioUserEdited = false;
 
 document.addEventListener("DOMContentLoaded", initApp);
 
@@ -197,6 +199,17 @@ function bindEvents() {
       handleAseoFormDraftEvent(event);
     }
   });
+
+  if (elements.horaInicio) {
+    elements.horaInicio.addEventListener('input', () => {
+      horaInicioUserEdited = true;
+      if (horaInicioClockTimer) clearInterval(horaInicioClockTimer);
+    });
+    elements.horaInicio.addEventListener('focus', () => {
+      horaInicioUserEdited = true;
+      if (horaInicioClockTimer) clearInterval(horaInicioClockTimer);
+    });
+  }
   elements.form.addEventListener("change", (event) => {
     saveCurrentFormDraft();
     if (state.activeFormatId === "aseo") {
@@ -260,6 +273,34 @@ function bindEvents() {
       flushCurrentDrafts();
     }
   });
+}
+
+function startHoraInicioClock() {
+  if (!elements.horaInicio) return;
+  // Do not override if a value already exists (e.g., restored draft)
+  if (elements.horaInicio.value) return;
+
+  // initial set
+  elements.horaInicio.value = getCurrentBogotaTimeInputValue();
+
+  if (horaInicioClockTimer) clearInterval(horaInicioClockTimer);
+  horaInicioClockTimer = setInterval(() => {
+    if (horaInicioUserEdited) {
+      clearInterval(horaInicioClockTimer);
+      horaInicioClockTimer = null;
+      return;
+    }
+    try {
+      elements.horaInicio.value = getCurrentBogotaTimeInputValue();
+    } catch (err) {}
+  }, 1000);
+}
+
+function stopHoraInicioClock() {
+  if (horaInicioClockTimer) {
+    clearInterval(horaInicioClockTimer);
+    horaInicioClockTimer = null;
+  }
 }
 
 function flushCurrentDrafts() {
@@ -524,6 +565,9 @@ async function initializeAppView() {
   }
   await loadCurrentFormDraft();
 
+  // Start live clock for horaInicio (if field not populated by draft)
+  startHoraInicioClock();
+
   if (startupDraftFormatId) {
     elements.mainMenu.hidden = true;
     elements.porcionadoView.hidden = false;
@@ -553,6 +597,8 @@ async function showFormatView(formatId) {
   applyReciboFirstRecordInfo();
   applyMaduracionFirstRecordInfo();
   await loadCurrentFormDraft();
+  // Ensure horaInicio live clock runs when switching views
+  startHoraInicioClock();
   elements.mainMenu.hidden = true;
   elements.porcionadoView.hidden = false;
   elements.porcionadoView.scrollIntoView({ behavior: "smooth", block: "start" });
