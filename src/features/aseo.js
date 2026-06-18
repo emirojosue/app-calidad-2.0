@@ -307,25 +307,29 @@ function handleAseoFormDraftEvent(event) {
 }
 
 function getAseoDrafts() {
-  try {
-    return JSON.parse(localStorage.getItem(ASEO_DRAFTS_STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
+  return draftCache.aseo;
 }
 
-function saveAseoDraft(area = getCurrentAseoArea()) {
+function saveAseoDraft(area = getCurrentAseoArea(), { immediate = false } = {}) {
   if (!area) return;
 
-  saveAseoDraftValues(area, collectAseoDraftValues());
+  saveAseoDraftValues(area, collectAseoDraftValues(), { immediate });
 }
 
-function saveAseoDraftValues(area, values) {
+function saveAseoDraftValues(area, values, { immediate = false } = {}) {
   if (!area) return;
 
   const drafts = getAseoDrafts();
-  drafts[area] = values;
-  localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  const existingDraft = drafts[area];
+  if (!hasAseoDraftValues(values) && !existingDraft) return;
+
+  drafts[area] = {
+    ...values,
+    schemaVersion: DRAFT_SCHEMA_VERSION,
+    revision: nextDraftRevision(),
+    updatedAt: new Date().toISOString(),
+  };
+  queueDraftDocumentSave(ASEO_DRAFT_DOCUMENT_ID, drafts, { showStatus: !immediate });
 }
 
 function loadAseoDraftForArea(area = getCurrentAseoArea()) {
@@ -340,6 +344,8 @@ function loadAseoDraftForArea(area = getCurrentAseoArea()) {
     return;
   }
 
+  restoreAseoGroupFromDraft(area, draft);
+  renderAseoMembers();
   setAseoFieldValue("aseoFecha", draft.fecha || toDateInputValue(new Date()));
   setAseoFieldValue("aseoHoraInicio", draft.horaInicio || "");
   setAseoFieldValue("aseoHoraFin", draft.horaFin || "");
@@ -363,10 +369,12 @@ function clearAseoDraft(area = getCurrentAseoArea()) {
 
   const drafts = getAseoDrafts();
   delete drafts[area];
-  localStorage.setItem(ASEO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  queueDraftDocumentSave(ASEO_DRAFT_DOCUMENT_ID, drafts);
 }
 
 function collectAseoDraftValues() {
+  const group = getCurrentAseoGroup();
+
   return {
     fecha: getValue("aseoFecha"),
     horaInicio: getValue("aseoHoraInicio"),
@@ -381,6 +389,8 @@ function collectAseoDraftValues() {
     observaciones: getValue("observaciones"),
     realizadoPor: getValue("realizadoPor"),
     verificadoPor: getValue("verificadoPor"),
+    integrantes: Array.isArray(group.members) ? [...group.members] : [],
+    lider: group.leader || "",
   };
 }
 
@@ -396,7 +406,25 @@ function hasAseoDraftValues(draft) {
     draft.motivoDemora,
     draft.motivoDemoraOtro,
     draft.observaciones,
-  ].some(Boolean) || (draft.ausentes || []).length > 0;
+    draft.realizadoPor,
+    draft.verificadoPor,
+    draft.lider,
+  ].some(Boolean) || (draft.ausentes || []).length > 0 || (draft.integrantes || []).length > 0;
+}
+
+function restoreAseoGroupFromDraft(area, draft) {
+  if (!area || !draft) return;
+  if (!Array.isArray(draft.integrantes) && !draft.lider) return;
+
+  const groups = getAseoGroups();
+  groups[area] = {
+    members: Array.isArray(draft.integrantes) ? draft.integrantes.filter(Boolean) : groups[area]?.members || [],
+    leader: draft.lider || groups[area]?.leader || "",
+  };
+  if (groups[area].leader && !groups[area].members.includes(groups[area].leader)) {
+    groups[area].members.push(groups[area].leader);
+  }
+  saveAseoGroups(groups);
 }
 
 function clearAseoEvaluationFields() {
@@ -519,6 +547,7 @@ function addAseoMember(nameToAdd = "") {
   saveAseoGroups(groups);
   if (input) input.value = "";
   renderAseoMembers();
+  saveAseoDraft(area);
 }
 
 function editAseoMember(currentName) {
@@ -533,6 +562,7 @@ function editAseoMember(currentName) {
   renameAseoSavedPerson(currentName, nextName);
   saveAseoGroups(groups);
   renderAseoMembers();
+  saveAseoDraft(area);
 }
 
 function deleteAseoMember(memberName) {
@@ -545,6 +575,7 @@ function deleteAseoMember(memberName) {
   if (group.leader === memberName) group.leader = group.members[0] || "";
   saveAseoGroups(groups);
   renderAseoMembers();
+  saveAseoDraft(area);
 }
 
 function setAseoLeader(memberName) {
@@ -555,6 +586,7 @@ function setAseoLeader(memberName) {
   groups[area].leader = memberName;
   saveAseoGroups(groups);
   renderAseoMembers();
+  saveAseoDraft(area);
 }
 
 function updateAseoCalculations() {

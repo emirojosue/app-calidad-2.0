@@ -49,6 +49,19 @@ var state = {
 };
 
 var DERIVED_FORM_FIELD_IDS = new Set(["fechaRegistro", "loteProduccion"]);
+var DRAFT_DB_NAME = "control-calidad-drafts";
+var DRAFT_DB_VERSION = 1;
+var DRAFT_STORE_NAME = "draftDocuments";
+var FORM_DRAFT_DOCUMENT_ID = "quality-form-drafts";
+var ASEO_DRAFT_DOCUMENT_ID = "aseo-form-drafts";
+var DRAFT_SCHEMA_VERSION = 1;
+var draftCache = {
+  form: {},
+  aseo: {},
+};
+var draftRevisionCounter = 0;
+var draftWriteQueues = {};
+var draftStatusTimer = null;
 var elements = {};
 var supabaseClient = null;
 var backgroundSyncState = {
@@ -65,6 +78,8 @@ async function initApp() {
   registerServiceWorker();
   updateClock();
   setInterval(updateClock, 1000);
+  requestPersistentStorage();
+  await hydrateDraftCaches();
 
   if (isCloudConfigured()) {
     await initCloudAuth();
@@ -130,6 +145,7 @@ function cacheElements() {
   elements.sharePanel = document.getElementById("sharePanel");
   elements.btnCloseSharePanel = document.getElementById("btnCloseSharePanel");
   elements.currentTime = document.getElementById("currentTime");
+  elements.draftSaveStatus = document.getElementById("draftSaveStatus");
 }
 
 function bindEvents() {
@@ -160,6 +176,7 @@ function bindEvents() {
     applyRememberedGeneralInfo();
     applyReciboFirstRecordInfo();
     applyMaduracionFirstRecordInfo();
+    saveCurrentFormDraft();
   });
   elements.cuartoMaduracion.addEventListener("change", () => {
     if (state.activeFormatId === "aseo") {
@@ -183,9 +200,11 @@ function bindEvents() {
   elements.btnDownload.addEventListener("click", downloadExcel);
   elements.btnShareFile.addEventListener("click", shareRecordsFile);
   elements.btnClearForm.addEventListener("click", () => {
+    if (!window.confirm("Eliminar el borrador actual y limpiar el formulario?")) return;
     if (state.activeFormatId === "aseo") clearAseoDraft(getCurrentAseoArea());
     clearCurrentFormDraft();
     clearFormInputs();
+    updateDraftSaveStatus("Borrador eliminado");
   });
   elements.btnClearRecords.addEventListener("click", clearRecords);
   elements.btnCloseSharePanel.addEventListener("click", hideSharePanel);
@@ -212,16 +231,209 @@ function bindEvents() {
   });
 
   window.addEventListener("beforeunload", () => {
-    saveCurrentFormDraft();
-    if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+    flushCurrentDrafts();
+  });
+
+  window.addEventListener("pagehide", () => {
+    flushCurrentDrafts();
   });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-      saveCurrentFormDraft();
-      if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+      flushCurrentDrafts();
     }
   });
+}
+
+function flushCurrentDrafts() {
+  saveCurrentFormDraft({ immediate: true });
+  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea(), { immediate: true });
+}
+
+async function requestPersistentStorage() {
+  if (!navigator.storage?.persist) return;
+
+  try {
+    await navigator.storage.persist();
+  } catch (error) {
+    console.warn("No se pudo solicitar almacenamiento persistente", error);
+  }
+}
+
+async function hydrateDraftCaches() {
+  draftCache.form = readLocalDraftDocument(FORM_DRAFTS_STORAGE_KEY);
+  draftCache.aseo = readLocalDraftDocument(ASEO_DRAFTS_STORAGE_KEY);
+
+  try {
+    const [formDocument, aseoDocument] = await Promise.all([
+      readDraftDocument(FORM_DRAFT_DOCUMENT_ID),
+      readDraftDocument(ASEO_DRAFT_DOCUMENT_ID),
+    ]);
+
+    draftCache.form = mergeDraftCollections(draftCache.form, formDocument?.drafts || {});
+    draftCache.aseo = mergeDraftCollections(draftCache.aseo, aseoDocument?.drafts || {});
+
+    queueDraftDocumentSave(FORM_DRAFT_DOCUMENT_ID, draftCache.form, { showStatus: false });
+    queueDraftDocumentSave(ASEO_DRAFT_DOCUMENT_ID, draftCache.aseo, { showStatus: false });
+  } catch (error) {
+    console.error("No se pudieron hidratar los borradores desde IndexedDB", error);
+    updateDraftSaveStatus("Error al guardar", true);
+  }
+}
+
+function readLocalDraftDocument(storageKey) {
+  try {
+    return JSON.parse(localStorage.getItem(storageKey)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function mergeDraftCollections(primary = {}, secondary = {}) {
+  return Object.keys(secondary).reduce((drafts, key) => {
+    const current = drafts[key];
+    const candidate = secondary[key];
+    drafts[key] = isNewerDraft(candidate, current) ? candidate : current;
+    return drafts;
+  }, { ...primary });
+}
+
+function isNewerDraft(candidate, current) {
+  if (!current) return true;
+  if (!candidate) return false;
+  const candidateRevision = Number(candidate.revision || 0);
+  const currentRevision = Number(current.revision || 0);
+  if (candidateRevision !== currentRevision) return candidateRevision > currentRevision;
+  return String(candidate.updatedAt || "") > String(current.updatedAt || "");
+}
+
+function openDraftDatabase() {
+  if (!("indexedDB" in window)) return Promise.reject(new Error("IndexedDB no esta disponible"));
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DRAFT_DB_NAME, DRAFT_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(DRAFT_STORE_NAME)) {
+        database.createObjectStore(DRAFT_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("No se pudo abrir IndexedDB"));
+    request.onblocked = () => reject(new Error("IndexedDB esta bloqueada por otra pestana"));
+  });
+}
+
+async function withDraftStore(mode, callback) {
+  const database = await openDraftDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(DRAFT_STORE_NAME, mode);
+    const store = transaction.objectStore(DRAFT_STORE_NAME);
+    let callbackResult;
+
+    transaction.oncomplete = () => {
+      database.close();
+      resolve(callbackResult);
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error || new Error("Error de transaccion IndexedDB"));
+    };
+    transaction.onabort = () => {
+      database.close();
+      reject(transaction.error || new Error("Transaccion IndexedDB cancelada"));
+    };
+
+    callbackResult = callback(store);
+  });
+}
+
+async function readDraftDocument(id) {
+  const database = await openDraftDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(DRAFT_STORE_NAME, "readonly");
+    const request = transaction.objectStore(DRAFT_STORE_NAME).get(id);
+
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error("No se pudo leer el borrador"));
+    transaction.oncomplete = () => database.close();
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error || new Error("Error leyendo IndexedDB"));
+    };
+    transaction.onabort = () => {
+      database.close();
+      reject(transaction.error || new Error("Lectura IndexedDB cancelada"));
+    };
+  });
+}
+
+function queueDraftDocumentSave(id, drafts, { showStatus = true } = {}) {
+  const storageKey = id === ASEO_DRAFT_DOCUMENT_ID ? ASEO_DRAFTS_STORAGE_KEY : FORM_DRAFTS_STORAGE_KEY;
+  const safeDrafts = cloneDraftData(drafts);
+  const document = {
+    id,
+    schemaVersion: DRAFT_SCHEMA_VERSION,
+    revision: nextDraftRevision(),
+    updatedAt: new Date().toISOString(),
+    drafts: safeDrafts,
+  };
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(safeDrafts));
+  } catch (error) {
+    console.error("No se pudo actualizar el espejo local del borrador", error);
+  }
+
+  if (showStatus) updateDraftSaveStatus("Guardando...");
+
+  const previousWrite = draftWriteQueues[id] || Promise.resolve();
+  draftWriteQueues[id] = previousWrite
+    .catch(() => {})
+    .then(() => writeDraftDocument(document))
+    .then(() => {
+      if (showStatus) updateDraftSaveStatus("Borrador guardado");
+    })
+    .catch((error) => {
+      console.error("No se pudo guardar el borrador en IndexedDB", error);
+      if (showStatus) updateDraftSaveStatus("Error al guardar", true);
+    });
+
+  return draftWriteQueues[id];
+}
+
+async function writeDraftDocument(document) {
+  await withDraftStore("readwrite", (store) => store.put(document));
+}
+
+function cloneDraftData(value) {
+  try {
+    return JSON.parse(JSON.stringify(value || {}));
+  } catch {
+    return {};
+  }
+}
+
+function nextDraftRevision() {
+  draftRevisionCounter += 1;
+  return Date.now() * 1000 + draftRevisionCounter;
+}
+
+function updateDraftSaveStatus(message, isError = false) {
+  if (!elements.draftSaveStatus) return;
+
+  window.clearTimeout(draftStatusTimer);
+  elements.draftSaveStatus.textContent = message;
+  elements.draftSaveStatus.dataset.status = isError ? "error" : "";
+
+  if (message === "Borrador guardado" || message === "Borrador eliminado") {
+    draftStatusTimer = window.setTimeout(() => {
+      if (elements.draftSaveStatus) elements.draftSaveStatus.textContent = message;
+    }, 1500);
+  }
 }
 
 async function initializeAppView() {
@@ -230,11 +442,12 @@ async function initializeAppView() {
   renderTableHeader();
   setInitialDateTime();
   loadRecords();
+  await loadCurrentFormDraft();
 }
 
 async function showFormatView(formatId) {
-  saveCurrentFormDraft();
-  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea());
+  saveCurrentFormDraft({ immediate: true });
+  if (state.activeFormatId === "aseo") saveAseoDraft(getCurrentAseoArea(), { immediate: true });
   state.activeFormatId = formatId;
   elements.formatViewTitle.textContent = formatTitles[formatId];
   updateFormatSpecificFields();
@@ -253,7 +466,7 @@ async function showFormatView(formatId) {
   applyRememberedGeneralInfo();
   applyReciboFirstRecordInfo();
   applyMaduracionFirstRecordInfo();
-  loadCurrentFormDraft();
+  await loadCurrentFormDraft();
   elements.mainMenu.hidden = true;
   elements.porcionadoView.hidden = false;
   elements.porcionadoView.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -795,7 +1008,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=50").then((registration) => {
+    navigator.serviceWorker.register("sw.js?v=51").then((registration) => {
       registration.update();
     }).catch(() => {});
   });
@@ -819,6 +1032,7 @@ function setCalendarType(type) {
   }
 
   handleDateChange();
+  saveCurrentFormDraft();
 }
 
 function handleDateChange() {
@@ -1353,30 +1567,32 @@ function resetFormAfterSave() {
 }
 
 function getFormDrafts() {
-  try {
-    return JSON.parse(localStorage.getItem(FORM_DRAFTS_STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
+  return draftCache.form;
 }
 
 function getCurrentDraftKey() {
   return state.activeFormatId;
 }
 
-function saveCurrentFormDraft() {
+function saveCurrentFormDraft({ immediate = false } = {}) {
   if (!elements.form) return;
 
   const values = collectFormDraftValues();
-  if (!hasFormDraftValues(values)) return;
+  const draftKey = getCurrentDraftKey();
+  const existingDraft = draftCache.form[draftKey];
+  if (!hasFormDraftValues(values) && !existingDraft) return;
 
   const drafts = getFormDrafts();
-  drafts[getCurrentDraftKey()] = {
+  drafts[draftKey] = {
+    schemaVersion: DRAFT_SCHEMA_VERSION,
+    revision: nextDraftRevision(),
+    updatedAt: new Date().toISOString(),
     calendarType: state.calendarType,
     selectedDate: state.selectedDate,
+    datePickerValue: elements.datePicker.value,
     values,
   };
-  localStorage.setItem(FORM_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  queueDraftDocumentSave(FORM_DRAFT_DOCUMENT_ID, drafts, { showStatus: !immediate });
 }
 
 function collectFormDraftValues() {
@@ -1408,9 +1624,24 @@ function hasFormDraftValues(values = {}) {
   });
 }
 
-function loadCurrentFormDraft() {
+async function loadCurrentFormDraft() {
   const draft = getFormDrafts()[getCurrentDraftKey()];
   if (!draft?.values) return;
+
+  if (draft.calendarType && draft.calendarType !== state.calendarType) {
+    state.calendarType = draft.calendarType;
+    document.querySelectorAll("[data-calendar-type]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.calendarType === state.calendarType);
+    });
+    elements.datePicker.type = state.calendarType === "gregorian" ? "date" : "text";
+    elements.datePicker.placeholder = state.calendarType === "gregorian" ? "" : "YYYY-DDD (ej: 2026-121)";
+  }
+
+  if (draft.selectedDate) state.selectedDate = draft.selectedDate;
+  if (draft.datePickerValue || draft.selectedDate) {
+    elements.datePicker.value = draft.datePickerValue || draft.selectedDate;
+    handleDateChange();
+  }
 
   Object.entries(draft.values).forEach(([id, value]) => {
     if (DERIVED_FORM_FIELD_IDS.has(id)) return;
@@ -1428,22 +1659,19 @@ function loadCurrentFormDraft() {
     if (field.dataset.rangeMin !== undefined || field.dataset.rangeMax !== undefined) checkRange(field);
   });
 
-  if (draft.values.datePicker) {
-    elements.datePicker.value = draft.values.datePicker;
-    handleDateChange();
-  }
-
   if (state.activeFormatId === "aseo") {
     state.aseoDraftArea = getCurrentAseoArea();
     renderAseoMembers();
     updateAseoCalculations();
   }
+
+  updateDraftSaveStatus("Borrador guardado");
 }
 
 function clearCurrentFormDraft() {
   const drafts = getFormDrafts();
   delete drafts[getCurrentDraftKey()];
-  localStorage.setItem(FORM_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  queueDraftDocumentSave(FORM_DRAFT_DOCUMENT_ID, drafts);
 }
 
 function clearFormInputs() {

@@ -657,6 +657,8 @@ body {
 }
 
 .form-actions {
+  align-items: center;
+  flex-wrap: wrap;
   margin-top: 20px;
 }
 
@@ -742,6 +744,17 @@ body {
 .btn-clear-records:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.draft-save-status {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+  min-width: 140px;
+}
+
+.draft-save-status[data-status="error"] {
+  color: var(--danger);
 }
 
 .records-header {
@@ -1139,6 +1152,10 @@ body {
   .btn-clear-form,
   .btn-clear-records,
   .btn-share-option {
+    width: 100%;
+  }
+
+  .draft-save-status {
     width: 100%;
   }
 
