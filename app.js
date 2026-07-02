@@ -90,13 +90,9 @@ async function initApp() {
   requestPersistentStorage();
   await hydrateDraftCaches();
 
-  if (isCloudConfigured()) {
-    await initCloudAuth();
-    return;
-  }
-
-  showAuth();
-  showAuthMessage("Configura Supabase en config.js para iniciar sesion o crear usuarios.");
+  // Saltar autenticacion y mostrar la app directamente.
+  showApp();
+  await initializeAppView();
 }
 
 function cacheElements() {
